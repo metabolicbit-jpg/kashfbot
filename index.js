@@ -251,10 +251,11 @@ async function handleCb(q, env) {
   }
   if (data.startsWith("buy:")) {
     const toman = parseInt(data.slice(4));
-    const r = await db.prepare("INSERT INTO payments (user_id,payload,amount_toman) VALUES (?,?,?)").bind(uid, `pay_${Date.now()}_${uid}`, toman).run();
+    const payload = `pay_${Date.now()}_${uid}`;
+    await db.prepare("INSERT INTO payments (user_id,payload,amount_toman) VALUES (?,?,?)").bind(uid, payload, toman).run();
     await bale(env, "sendInvoice", {
       chat_id: uid, title: "خرید سکه کشف", description: `بسته ${toman.toLocaleString("fa-IR")} تومانی`,
-      payload: `pay_${r.meta.last_row_id}_${uid}`, provider_token: env.WALLET_TOKEN,
+      payload: payload, provider_token: env.WALLET_TOKEN,
       prices: [{ label: "مبلغ بسته (ریال)", amount: toman * TOMAN_TO_RIAL }]
     });
     return;
