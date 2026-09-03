@@ -5,7 +5,7 @@ compatibility_date = "2026-08-01"
 [[d1_databases]]
 binding = "DB"
 database_name = "kashf-db"
-database_id = "D1_DATABASE_ID_PLACEHOLDER"
+database_id = "1438a0fce450507fe1b289161bceb76e"
 
 [triggers]
 crons = ["*/10 * * * *"]
