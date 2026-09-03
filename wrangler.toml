@@ -9,3 +9,8 @@ database_id = "2befbf3d-1fb5-4e77-906c-6d4770b32543"
 
 [triggers]
 crons = ["*/10 * * * *"]
+
+[vars]
+CLUB_CHANNEL = "@KashfClub"
+BOT_NAME = "کشف"
+OWNER_ID = "1381797564"
