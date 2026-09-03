@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════
-// 🌱 KashfBot v4 — بات کشف مخاطب واقعی
+// 🌱 KashfBot v5 — بات کشف مخاطب واقعی
 // ═══════════════════════════════════════════
 const BOT_NAME = "کشف", CLUB_CHANNEL = "@KashfClub";
 const BASE_PRICE = 100, COMMISSION_RATE = 0.2, RETENTION_HOURS = 48;
@@ -12,7 +12,10 @@ const PACKAGES = [
   { toman: 120000, label: "بسته طلایی" },
   { toman: 300000, label: "بسته الماس" }
 ];
-const toEn = s => (s || "").replace(/[۰-۹]/g, d => "۰۱۳۴۵۶۷۸۹".indexOf(d)).replace(/[٠-٩]/g, d => "٠١٢٤٥٦٨٩".indexOf(d));
+// اصلاح v5: نگاشت کامل اعداد فارسی و عربی (۱۰ رقم)
+const toEn = s => String(s || "")
+  .replace(/[۰-۹]/g, d => "۰۱۲۴۵۶۸۹".indexOf(d))
+  .replace(/[٠-٩]/g, d => "٠١٢٤٥٦٨٩".indexOf(d));
 const HELP_TEXT = `📚 <b>راهنمای کشف</b>\n\n🪙 <b>کسب سکه:</b> عضویت در کانال‌های پیشنهادی (+۴) | مأموریت‌ها | دعوت دوستان\n⏳ <b>قانون ۴۸ ساعت:</b> خروج زودتر = −۸ سکه و اعتماد −۱۰\n🛡 <b>اعتماد:</b> هرچه بیشتر بمانی، پاداش بیشتر\n💎 <b>قیمت سکه:</b> پویا — با رشد تقاضا بالا می‌رود\n🔒 <b>استیک:</b> قفل سکه = سود روزانه ۲٪ + بلیت قرعه‌کشی\n📢 <b>ثبت کمپین:</b> هر عضو = ۴ سکه (حداقل ۲۵ عضو)`;
 
 // ─── کلاینت API بله ───
@@ -186,7 +189,7 @@ async function handleStateText(u, env, st) {
   if (st.step === "STAKE_AMOUNT") {
     const n = parseInt(toEn(text));
     const u = await db.prepare("SELECT * FROM users WHERE user_id=?").bind(uid).first();
-    if (!n || n < 10) return sendMsg(env, uid, "❌ حداقل ۰ سکه.", CANCEL_KB);
+    if (!n || n < 10) return sendMsg(env, uid, "❌ حداقل ۱۰ سکه.", CANCEL_KB);
     if (n > u.balance) return sendMsg(env, uid, `❌ موجودی کافی نیست (داری: ${u.balance}).`, CANCEL_KB);
     d.amount = n;
     await setState(db, uid, "STAKE_PERIOD", d);
