@@ -18,5 +18,7 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           secrets: |
             BALE_BOT_TOKEN
+            WALLET_TOKEN
         env:
           BALE_BOT_TOKEN: ${{ secrets.BALE_BOT_TOKEN }}
+          WALLET_TOKEN: ${{ secrets.WALLET_TOKEN }}
