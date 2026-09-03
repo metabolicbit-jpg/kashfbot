@@ -408,6 +408,9 @@ async function route(u, env) {
   if (u.message?.text?.startsWith("/start")) return handleStart(u, env);
   if (u.callback_query) return handleCb(u.callback_query, env);
   if (u.message?.text) {
+    const t = u.message.text;
+    const MENU = ["🌟 کشف کانال‌های جدید","📢 ثبت کمپین رشد","🎯 مأموریت‌های امروز","👤 پروفایل و کیف پول","❓ راهنما و پشتیبانی"];
+    if (MENU.includes(t)) { await clearState(env.DB, u.message.from.id); return handleMenu(u, env); }
     const st = await getState(env.DB, u.message.from.id);
     if (st) return handleStateText(u, env, st);
     return handleMenu(u, env);
