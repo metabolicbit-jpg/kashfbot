@@ -255,7 +255,7 @@ async function handleCb(q, env) {
     await bale(env, "sendInvoice", {
       chat_id: uid, title: "خرید سکه کشف", description: `بسته ${toman.toLocaleString("fa-IR")} تومانی`,
       payload: `pay_${r.meta.last_row_id}_${uid}`, provider_token: env.WALLET_TOKEN,
-      prices: [{ label: "سکه", amount: toman * TOMAN_TO_RIAL }]
+      prices: [{ label: "مبلغ بسته (ریال)", amount: toman * TOMAN_TO_RIAL }]
     });
     return;
   }
