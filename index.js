@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════
-// 🌱 KashfBot v3 — بات کشف مخاطب واقعی
+// 🌱 KashfBot v4 — بات کشف مخاطب واقعی
 // ═══════════════════════════════════════════
 const BOT_NAME = "کشف", CLUB_CHANNEL = "@KashfClub";
 const BASE_PRICE = 100, COMMISSION_RATE = 0.2, RETENTION_HOURS = 48;
@@ -12,6 +12,7 @@ const PACKAGES = [
   { toman: 120000, label: "بسته طلایی" },
   { toman: 300000, label: "بسته الماس" }
 ];
+const toEn = s => (s || "").replace(/[۰-۹]/g, d => "۰۱۳۴۵۶۷۸۹".indexOf(d)).replace(/[٠-٩]/g, d => "٠١٢٤٥٦٨٩".indexOf(d));
 const HELP_TEXT = `📚 <b>راهنمای کشف</b>\n\n🪙 <b>کسب سکه:</b> عضویت در کانال‌های پیشنهادی (+۴) | مأموریت‌ها | دعوت دوستان\n⏳ <b>قانون ۴۸ ساعت:</b> خروج زودتر = −۸ سکه و اعتماد −۱۰\n🛡 <b>اعتماد:</b> هرچه بیشتر بمانی، پاداش بیشتر\n💎 <b>قیمت سکه:</b> پویا — با رشد تقاضا بالا می‌رود\n🔒 <b>استیک:</b> قفل سکه = سود روزانه ۲٪ + بلیت قرعه‌کشی\n📢 <b>ثبت کمپین:</b> هر عضو = ۴ سکه (حداقل ۲۵ عضو)`;
 
 // ─── کلاینت API بله ───
@@ -90,7 +91,7 @@ const campTagsKB = sel => ({ inline_keyboard: [
   [{ text: "❌ انصراف", callback_data: "cancel" }]] });
 const CANCEL_KB = { inline_keyboard: [[{ text: "❌ انصراف", callback_data: "cancel" }]] };
 
-// ─── استارت ───
+// ─── استارت + رفرال خودکار ───
 async function handleStart(u, env) {
   const uid = u.message.from.id, db = env.DB;
   const text = u.message.text || "";
@@ -100,6 +101,14 @@ async function handleStart(u, env) {
     const code = String(Math.floor(100000 + Math.random() * 900000));
     await db.prepare("INSERT INTO users (user_id,username,first_name,ref_code,referred_by) VALUES (?,?,?,?,?)")
       .bind(uid, u.message.from.username || "", u.message.from.first_name || "", code, ref).run();
+    if (ref) {
+      const r = await db.prepare("SELECT * FROM users WHERE ref_code=?").bind(ref).first();
+      if (r) {
+        await db.prepare("UPDATE users SET referred_by=? WHERE user_id=?").bind(r.user_id, uid).run();
+        const ok = await mintFromBudget(db, r.user_id, 15);
+        if (ok) await bale(env, "sendMessage", { chat_id: r.user_id, text: "🎉 یک دوست با لینک تو عضو شد! <b>+۱۵ سکه</b>", parse_mode: "HTML" });
+      }
+    }
     return sendMsg(env, uid, `🌱 به <b>${BOT_NAME}</b> خوش آمدی!\nبه چه موضوعاتی علاقه داری؟ (حداکثر ۵)`, interestsKB([]));
   }
   await sendMsg(env, uid, `👋 خوش برگشتی!\n🪙 موجودی: <b>${exists.balance}</b> سکه`, MAIN_KB);
@@ -158,7 +167,7 @@ async function handleStateText(u, env, st) {
   }
 
   if (st.step === "CAMP_TARGET") {
-    const n = parseInt(text);
+    const n = parseInt(toEn(text));
     if (!n || n < MIN_CAMPAIGN) return sendMsg(env, uid, `❌ حداقل ${MIN_CAMPAIGN} عضو.`, CANCEL_KB);
     d.target = n; d.cost = n * COST_PER_MEMBER;
     await setState(db, uid, "CAMP_CONFIRM", d);
@@ -175,9 +184,9 @@ async function handleStateText(u, env, st) {
   }
 
   if (st.step === "STAKE_AMOUNT") {
-    const n = parseInt(text);
+    const n = parseInt(toEn(text));
     const u = await db.prepare("SELECT * FROM users WHERE user_id=?").bind(uid).first();
-    if (!n || n < 10) return sendMsg(env, uid, "❌ حداقل ۱۰ سکه.", CANCEL_KB);
+    if (!n || n < 10) return sendMsg(env, uid, "❌ حداقل ۰ سکه.", CANCEL_KB);
     if (n > u.balance) return sendMsg(env, uid, `❌ موجودی کافی نیست (داری: ${u.balance}).`, CANCEL_KB);
     d.amount = n;
     await setState(db, uid, "STAKE_PERIOD", d);
@@ -196,6 +205,11 @@ async function handleCb(q, env) {
   if (data === "cancel") { await clearState(db, uid); return edit("❌ انصراف شد."); }
   if (data === "disc") return showDiscover(q, env, 0);
   if (data.startsWith("next:")) return showDiscover(q, env, parseInt(data.slice(5)));
+
+  if (data.startsWith("report:")) {
+    await db.prepare("INSERT INTO reports (reporter_id,target_kind,target_id,reason) VALUES (?,?,?,?)").bind(uid, "channel", data.slice(7), "گزارش کاربر روی تسک کانال").run();
+    return edit("🚩 گزارش تو ثبت شد. ممنون که از کیفیت کشف محافظت می‌کنی.");
+  }
 
   if (data.startsWith("tag:")) {
     const t = data.slice(4);
@@ -315,7 +329,7 @@ async function handleCb(q, env) {
     const ch = await db.prepare("SELECT * FROM channels WHERE id=?").bind(chId).first();
     if (!ch || ch.budget_coins < REWARD_COINS) return edit("⚠️ بودجه کمپین تمام شده.");
     const r = await db.prepare("INSERT INTO memberships (user_id,channel_id,status) VALUES (?,?,'assigned')").bind(uid, chId).run();
-    return edit(`📢 عضو شو: <b>@${ch.username}</b>`, { inline_keyboard: [[{ text: "✅ عضو شدم", callback_data: "joined:" + r.meta.last_row_id }]] });
+    return edit(`📢 عضو شو: <b>@${ch.username}</b>`, { inline_keyboard: [[{ text: "✅ عضو شدم", callback_data: "joined:" + r.meta.last_row_id }, { text: "🚩 گزارش", callback_data: "report:" + chId }]] });
   }
   if (data.startsWith("joined:")) {
     const mId = parseInt(data.slice(7));
@@ -342,7 +356,9 @@ async function showDiscover(q, env, idx) {
   const overlap = Math.round(JSON.parse(ch.niches).filter(t => my.includes(t)).length / Math.max(my.length, 1) * 100);
   await bale(env, "editMessageText", { chat_id: q.message.chat.id, message_id: q.message.message_id,
     text: `🌟 <b>${ch.title}</b>\n🎯 تشابه: ${overlap}٪ | 🪙 +${REWARD_COINS}`, parse_mode: "HTML",
-    reply_markup: { inline_keyboard: [[{ text: "🚀 شروع مأموریت", callback_data: "mission:" + ch.id }], [{ text: "⏭ بعدی", callback_data: "next:" + (idx + 1) }]] } });
+    reply_markup: { inline_keyboard: [
+      [{ text: "🚀 شروع مأموریت", callback_data: "mission:" + ch.id }],
+      [{ text: "⏭ بعدی", callback_data: "next:" + (idx + 1) }, { text: "🚩 گزارش", callback_data: "report:" + ch.id }]] } });
 }
 
 // ─── پرداخت موفق ───
@@ -357,6 +373,25 @@ async function handlePayment(u, env) {
   await sendMsg(env, u.message.from.id, `💎 خرید موفق!\n🪙 +<b>${coins}</b> سکه\n💰 پشتوانه اقتصاد رشد کرد 📈`, MAIN_KB);
 }
 
+// ─── ابزارهای مدیر (قرعه‌کشی + گزارش‌ها) ───
+async function handleDraw(env, uid) {
+  const db = env.DB;
+  const tickets = (await db.prepare("SELECT * FROM lottery_tickets WHERE draw_id IS NULL").all()).results;
+  if (!tickets.length) return sendMsg(env, uid, "❌ بلیطی برای قرعه‌کشی نیست.");
+  const win = tickets[Math.floor(Math.random() * tickets.length)];
+  const r = await db.prepare("INSERT INTO draws (period,prize_title,status,winner_id,draw_at) VALUES ('manual','قرعه‌کشی کشف','completed',?,datetime('now'))").bind(win.user_id).run();
+  await db.prepare("UPDATE lottery_tickets SET draw_id=? WHERE draw_id IS NULL").bind(r.meta.last_row_id).run();
+  const w = await db.prepare("SELECT first_name FROM users WHERE user_id=?").bind(win.user_id).first();
+  await bale(env, "sendMessage", { chat_id: win.user_id, text: "🏆 تبریک! تو برنده قرعه‌کشی کشف شدی! 🎉\nبرای دریافت جایزه به پشتیبانی پیام بده." });
+  await sendMsg(env, uid, `🏆 برنده: <b>${w?.first_name || ""}</b> (<code>${win.user_id}</code>)\n📣 حالا در ${CLUB_CHANNEL} به‌صورت زنده اعلام کن (پروتکل شفافیت).`);
+}
+async function handleReports(env, uid) {
+  const db = env.DB;
+  const rows = (await db.prepare("SELECT * FROM reports WHERE status='open' ORDER BY id DESC LIMIT 10").all()).results;
+  if (!rows.length) return sendMsg(env, uid, "✅ گزارش باز نداریم.");
+  return sendMsg(env, uid, rows.map(x => `#${x.id} | ${x.target_kind}#${x.target_id}\n👤 ${x.reporter_id}\n📝 ${x.reason}\n──────────`).join("\n"));
+}
+
 // ─── کرون: نگهبانان اقتصاد ───
 async function runCron(env) {
   const db = env.DB, now = new Date().toISOString();
@@ -369,11 +404,11 @@ async function runCron(env) {
       await db.prepare("UPDATE memberships SET status='rewarded' WHERE id=?").bind(m.id).run();
       await payFromEscrow(db, m.user_id, m.channel_id, m.coins);
       await db.prepare("UPDATE users SET trust_score=MIN(100,trust_score+5), total_tasks=total_tasks+1 WHERE user_id=?").bind(m.user_id).run();
-      await bale(env, "sendMessage", { chat_id: m.user_id, text: "🎉 ماندگاری تأیید شد! +۴ سکه | 🛡 +", parse_mode: "HTML" });
+      await bale(env, "sendMessage", { chat_id: m.user_id, text: "🎉 ماندگاری تأیید شد! <b>+۴ سکه</b> | 🛡 اعتماد +۵", parse_mode: "HTML" });
     } else {
       await db.prepare("UPDATE memberships SET status='penalized' WHERE id=?").bind(m.id).run();
       await db.prepare("UPDATE users SET balance=MAX(0,balance-?), trust_score=MAX(0,trust_score-10) WHERE user_id=?").bind(PENALTY_COINS, m.user_id).run();
-      await bale(env, "sendMessage", { chat_id: m.user_id, text: `⚠️ خروج زودهنگام: −${PENALTY_COINS} سکه`, parse_mode: "HTML" });
+      await bale(env, "sendMessage", { chat_id: m.user_id, text: `⚠️ خروج زودهنگام: <b>−${PENALTY_COINS} سکه</b>`, parse_mode: "HTML" });
     }
   }
   const me = await bale(env, "getMe");
@@ -407,6 +442,8 @@ async function route(u, env) {
   if (u.pre_checkout_query) return bale(env, "answerPreCheckoutQuery", { pre_checkout_query_id: u.pre_checkout_query.id, ok: true });
   if (u.message?.successful_payment) return handlePayment(u, env);
   if (u.message?.text?.startsWith("/start")) return handleStart(u, env);
+  if (u.message?.text === "/draw" && u.message.from.id === parseInt(env.OWNER_ID || "0")) return handleDraw(env, u.message.from.id);
+  if (u.message?.text === "/reports" && u.message.from.id === parseInt(env.OWNER_ID || "0")) return handleReports(env, u.message.from.id);
   if (u.callback_query) return handleCb(u.callback_query, env);
   if (u.message?.text) {
     const t = u.message.text;
