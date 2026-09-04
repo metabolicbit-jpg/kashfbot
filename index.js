@@ -1,5 +1,6 @@
 // ═══════════════════════════════════════════
-// 🌱 KashfBot v8 — بات کشف مخاطب واقعی
+// 🌱 KashfBot v9 — بات کشف مخاطب واقعی
+// رده‌بندی موضوعی: مطابق فیلتر رسمی تبلیغات بله
 // ═══════════════════════════════════════════
 const BOT_NAME = "کشف", CLUB_CHANNEL = "@KashfClub";
 const BOT_USERNAME = "kashfbot";
@@ -7,21 +8,22 @@ const BASE_PRICE = 100, COMMISSION_RATE = 0.2, RETENTION_HOURS = 48;
 const WELCOME_BONUS = 10, REWARD_COINS = 4, PENALTY_COINS = 8;
 const COST_PER_MEMBER = 4, MIN_CAMPAIGN = 25, TOMAN_TO_RIAL = 10;
 
-// ─── درخت دسته‌بندی موضوعات (هماهنگ اونبوردینگ + کمپین) ───
+// ─── رده‌بندی رسمی بله (۱۰ دسته + زیرشاخه‌ها) ───
 const CATEGORIES = [
-  { name: "ورزشی", emoji: "⚽", subs: ["فوتبال", "کشتی", "ورزش عمومی"] },
-  { name: "طنز و سرگرمی", emoji: "😂", subs: ["طنز", "کلیپ خنده‌دار", "موسیقی"] },
-  { name: "خبری", emoji: "📰", subs: ["اخبار ایران", "اخبار جهان", "اقتصاد و بازار"] },
-  { name: "تکنولوژی", emoji: "💻", subs: ["موبایل", "کامپیوتر", "هوش مصنوعی", "ارز دیجیتال"] },
-  { name: "فروشگاهی", emoji: "🛍️", subs: ["پوشاک", "لوازم خانگی", "آرایشی بهداشتی"] },
-  { name: "آموزشی", emoji: "🎓", subs: ["زبان خارجی", "کنکور و درسی", "مهارت آموزی"] },
-  { name: "هنر", emoji: "🎨", subs: ["عکاسی", "سینما و سریال", "خوشنویسی"] },
-  { name: "آشپزی", emoji: "🍳", subs: ["غذای ایرانی", "دسر و نوشیدنی", "فست فود"] },
-  { name: "بازی", emoji: "🎮", subs: ["بازی موبایل", "بازی کامپیوتر"] },
-  { name: "مذهبی", emoji: "🕌", subs: ["قرآن و ادعیه", "مداحی", "احکام"] }
+  { name: "خدمات کسب و کار", emoji: "💼", subs: ["مشاوره کسب و کار", "املاک و عمرانی", "خدمات مالی و بیمه", "سایر"] },
+  { name: "فروشگاهی", emoji: "🛍️", subs: ["آرایشی و بهداشتی", "آموزشی", "اسباب بازی و عروسک", "پوشاک", "پوشاک آقایان", "پوشاک بانوان", "پوشاک خانواده", "پوشاک کودک و نوجوان", "خانه و آشپزخانه", "خوراکی و مواد غذایی", "شال و روسری", "فرهنگی و هنری", "کتاب و لوازم تحریر", "کالای دیجیتال", "کیف و کفش", "لوازم شخصی", "سایر"] },
+  { name: "آموزشی", emoji: "🎓", subs: ["زبان‌های خارجی", "کنکور", "مدرسه", "برنامه نویسی", "محتوای آموزشی", "سایر"] },
+  { name: "سرگرمی", emoji: "🎭", subs: ["سرگرمی"] },
+  { name: "سلامت و زیبایی", emoji: "💄", subs: ["سلامت و زیبایی"] },
+  { name: "خانه و آشپزخانه", emoji: "🏠", subs: ["خانه و آشپزخانه"] },
+  { name: "تربیت و روانشناسی", emoji: "🧠", subs: ["تربیت و روانشناسی"] },
+  { name: "خیریه و مسئولیت اجتماعی", emoji: "🤝", subs: ["خیریه و مسئولیت اجتماعی"] },
+  { name: "خبری", emoji: "📰", subs: ["خبری"] },
+  { name: "مذهبی", emoji: "🕌", subs: ["مذهبی"] }
 ];
+const leaf = (catName, sub) => `${catName} > ${sub}`;
 
-// ─── ابزارهای تاریخ شمسی و اعداد فارسی ───
+// ─── تاریخ شمسی + اعداد فارسی ───
 const JALALI_MONTHS = ["فروردین","اردیبهشت","خرداد","تیر","مرداد","شهریور","مهر","آبان","آذر","دی","بهمن","اسفند"];
 const faNum = n => String(n).replace(/\d/g, d => "۰۱۲۳۴۵۶۷۸۹"[d]);
 function g2j(gy, gm, gd) {
@@ -37,7 +39,7 @@ function g2j(gy, gm, gd) {
   const jd = 1 + ((days < 186) ? (days%31) : ((days-186)%30));
   return [jy, jm, jd];
 }
-const IR = iso => new Date(new Date(iso).getTime() + 3.5*3600*1000); // ساعت ایران
+const IR = iso => new Date(new Date(iso).getTime() + 3.5*3600*1000);
 function faDate(iso) { const d = IR(iso); const [jy,jm,jd] = g2j(d.getUTCFullYear(), d.getUTCMonth()+1, d.getUTCDate()); return `${faNum(jd)} ${JALALI_MONTHS[jm-1]} ${faNum(jy)}`; }
 function faTime(iso) { const d = IR(iso); return faNum(String(d.getUTCHours()).padStart(2,"0") + ":" + String(d.getUTCMinutes()).padStart(2,"0")); }
 const chunk = (arr, n) => Array.from({ length: Math.ceil(arr.length/n) }, (_, i) => arr.slice(i*n, i*n+n));
@@ -54,7 +56,7 @@ const PACKAGES = [
   { toman: 120000, label: "بسته طلایی" },
   { toman: 300000, label: "بسته الماس" }
 ];
-const HELP_TEXT = `📚 <b>راهنمای کشف</b>\n\n🪙 <b>کسب سکه:</b> عضویت در کانال‌های پیشنهادی (+۴) | مأموریت‌ها | دعوت دوستان\n⏳ <b>قانون ۴۸ ساعت:</b> ماندگاری = مخاطب واقعی = ارزش بیشتر؛ خروج زودتر = −۸ سکه\n🛡 <b>اعتماد:</b> هرچه بیشتر بمانی، پاداش بیشتر\n💎 <b>قیمت سکه:</b> پویا — با رشد تقاضا بالا می‌رود\n🔒 <b>استیک:</b> قفل سکه = سود روزانه ۲٪ + بلیت قرعه‌کشی\n📢 <b>ثبت کمپین:</b> هر عضو = ۴ سکه (حداقل ۲۵ عضو)`;
+const HELP_TEXT = `📚 <b>راهنمای کشف</b>\n\n🪙 <b>کسب سکه:</b> عضویت در کانال‌های پیشنهادی (+۴) | مأموریت‌ها | دعوت دوستان\n⏳ <b>قانون ۴۸ ساعت:</b> ماندگاری = مخاطب واقعی؛ خروج زودتر = −۸ سکه\n🛡 <b>اعتماد:</b> هرچه بیشتر بمانی، پاداش بیشتر\n💎 <b>قیمت سکه:</b> پویا — با رشد تقاضا بالا می‌رود\n🔒 <b>استیک:</b> قفل سکه = سود روزانه ۲٪ + بلیت قرعه‌کشی\n📢 <b>ثبت کمپین:</b> هر عضو = ۴ سکه (حداقل ۲۵ عضو)\n🗂 <b>دسته‌بندی موضوعی:</b> مطابق رده‌بندی رسمی بله`;
 
 // ─── کلاینت API بله ───
 async function bale(env, method, payload = {}) {
@@ -113,7 +115,7 @@ async function setState(db, uid, step, data = {}) {
 const getState = (db, uid) => db.prepare("SELECT * FROM user_states WHERE user_id=?").bind(uid).first();
 const clearState = (db, uid) => db.prepare("DELETE FROM user_states WHERE user_id=?").bind(uid).run();
 
-// ─── کیبوردها (v8: درخت دسته‌بندی سلسله‌مراتبی) ───
+// ─── کیبوردها (v9: درخت رسمی بله + اندیس‌های کوتاه) ───
 const MAIN_KB = { keyboard: [
   [{ text: "🌟 کشف کانال، گروه و ربات" }, { text: "📢 ثبت کمپین رشد" }],
   [{ text: "🎯 مأموریت‌های امروز" }, { text: "👤 پروفایل من" }],
@@ -121,24 +123,26 @@ const MAIN_KB = { keyboard: [
 const CANCEL_KB = { inline_keyboard: [[{ text: "❌ انصراف", callback_data: "cancel" }]] };
 
 function interestsKB(d) {
-  if (!d.cat) return { inline_keyboard: [
-    ...chunk(CATEGORIES.map(c => ({ text: `${c.emoji} ${c.name}`, callback_data: "cat:" + c.name })), 2),
+  const sel = d.sel || [];
+  if (d.cat == null) return { inline_keyboard: [
+    ...chunk(CATEGORIES.map((c, i) => ({ text: `${c.subs.some(s => sel.includes(leaf(c.name, s))) ? "✅ " : ""}${c.emoji} ${c.name}`, callback_data: "cat:" + i })), 2),
     [{ text: "✅ ثبت علایق من", callback_data: "tags_done" }]] };
-  const c = CATEGORIES.find(x => x.name === d.cat);
+  const c = CATEGORIES[d.cat];
   return { inline_keyboard: [
     [{ text: `${c.emoji} ${c.name} — زیرشاخه را انتخاب کن`, callback_data: "noop" }],
-    ...chunk(c.subs.map(s => ({ text: ((d.sel||[]).includes(s) ? "✅ " : "") + s, callback_data: "sub:" + s })), 2),
+    ...c.subs.map((s, j) => [{ text: `${sel.includes(leaf(c.name, s)) ? "✅ " : ""}${s}`, callback_data: `sub:${d.cat}:${j}` }]),
     [{ text: "🔙 بازگشت به دسته‌ها", callback_data: "catback" }],
     [{ text: "✅ ثبت علایق من", callback_data: "tags_done" }]] };
 }
 function campTagsKB(d) {
-  if (!d.ccat) return { inline_keyboard: [
-    ...chunk(CATEGORIES.map(c => ({ text: `${c.emoji} ${c.name}`, callback_data: "ccat:" + c.name })), 2),
+  const sel = d.csel || [];
+  if (d.ccat == null) return { inline_keyboard: [
+    ...chunk(CATEGORIES.map((c, i) => ({ text: `${c.subs.some(s => sel.includes(leaf(c.name, s))) ? "✅ " : ""}${c.emoji} ${c.name}`, callback_data: "ccat:" + i })), 2),
     [{ text: "✅ ادامه", callback_data: "ctags_done" }], [{ text: "❌ انصراف", callback_data: "cancel" }]] };
-  const c = CATEGORIES.find(x => x.name === d.ccat);
+  const c = CATEGORIES[d.ccat];
   return { inline_keyboard: [
     [{ text: `${c.emoji} ${c.name} — زیرشاخه را انتخاب کن`, callback_data: "noop" }],
-    ...chunk(c.subs.map(s => ({ text: ((d.csel||[]).includes(s) ? "✅ " : "") + s, callback_data: "csub:" + s })), 2),
+    ...c.subs.map((s, j) => [{ text: `${sel.includes(leaf(c.name, s)) ? "✅ " : ""}${s}`, callback_data: `csub:${d.ccat}:${j}` }]),
     [{ text: "🔙 بازگشت", callback_data: "ccatback" }],
     [{ text: "✅ ادامه", callback_data: "ctags_done" }], [{ text: "❌ انصراف", callback_data: "cancel" }]] };
 }
@@ -158,7 +162,7 @@ async function handleStart(u, env) {
     if (refUserId) { const ok = await mintFromBudget(db, refUserId, 15);
       if (ok) await bale(env, "sendMessage", { chat_id: refUserId, text: "🎉 یک دوست با لینک تو عضو شد! <b>+۱۵ سکه</b>", parse_mode: "HTML" }); }
     await setState(db, uid, "INTERESTS", { sel: [], cat: null });
-    return sendMsg(env, uid, `🌱 به <b>${BOT_NAME}</b> خوش آمدی!\nابتدا یک <b>دسته</b> را بزن، سپس زیرشاخه‌های مورد علاقه‌ات را انتخاب کن (حداکثر ۵):`, interestsKB({ sel: [], cat: null }));
+    return sendMsg(env, uid, `🌱 به <b>${BOT_NAME}</b> خوش آمدی!\nدسته‌بندی موضوعی (مطابق رده‌بندی رسمی بله) را ببین:\nیک <b>دسته</b> را بزن و زیرشاخه‌های مورد علاقه‌ات را انتخاب کن (حداکثر ۵):`, interestsKB({ sel: [], cat: null }));
   }
   await sendMsg(env, uid, `👋 خوش برگشتی!\n🪙 موجودی: <b>${exists.balance}</b> سکه`, MAIN_KB);
 }
@@ -242,7 +246,7 @@ async function handleStateText(u, env, st) {
   if (st.step === "STAKE_AMOUNT") {
     const n = parseInt(toEn(text));
     const x = await db.prepare("SELECT * FROM users WHERE user_id=?").bind(uid).first();
-    if (!n || n < 10) return sendMsg(env, uid, "❌ حداقل ۰ سکه.", CANCEL_KB);
+    if (!n || n < 10) return sendMsg(env, uid, "❌ حداقل ۱۰ سکه.", CANCEL_KB);
     if (n > x.balance) return sendMsg(env, uid, `❌ موجودی کافی نیست (داری: ${x.balance}).`, CANCEL_KB);
     d.amount = n;
     await setState(db, uid, "STAKE_PERIOD", d);
@@ -257,22 +261,26 @@ async function handleCb(q, env) {
   await answerCb(env, q.id);
   const edit = (text, rm) => bale(env, "editMessageText", { chat_id: q.message.chat.id, message_id: q.message.message_id, text, parse_mode: "HTML", ...(rm ? { reply_markup: rm } : {}) });
   const setKB = rm => bale(env, "editMessageReplyMarkup", { chat_id: q.message.chat.id, message_id: q.message.message_id, reply_markup: rm });
+  const toggle = (arr, v, max = 5) => { if (arr.includes(v)) arr.splice(arr.indexOf(v), 1); else if (arr.length < max) arr.push(v); };
 
   if (data === "noop") return;
   if (data === "cancel") { await clearState(db, uid); return edit("❌ انصراف شد."); }
   if (data === "disc") return showDiscover(q, env, 0);
   if (data.startsWith("next:")) return showDiscover(q, env, parseInt(data.slice(5)));
 
-  // ─── درخت علایق کاربر (v8) ───
+  // ─── درخت علایق کاربر (v9: اندیس‌محور) ───
   if (data.startsWith("cat:") || data === "catback" || data.startsWith("sub:")) {
     const st = await getState(db, uid); if (!st) return;
     const d = JSON.parse(st.data || "{}"); d.sel = d.sel || [];
-    if (data.startsWith("cat:")) d.cat = data.slice(4);
-    else if (data === "catback") d.cat = null;
-    else { const t = data.slice(4);
-      if (d.sel.includes(t)) d.sel.splice(d.sel.indexOf(t), 1);
-      else if (d.sel.length < 5) d.sel.push(t);
-      else return answerCb(env, q.id); }
+    if (data === "catback") d.cat = null;
+    else if (data.startsWith("cat:")) {
+      const c = CATEGORIES[parseInt(data.slice(4))];
+      if (c.subs.length === 1) { toggle(d.sel, leaf(c.name, c.subs[0])); d.cat = null; }
+      else d.cat = CATEGORIES.indexOf(c);
+    } else {
+      const [i, j] = data.slice(4).split(":").map(Number);
+      toggle(d.sel, leaf(CATEGORIES[i].name, CATEGORIES[i].subs[j]));
+    }
     await setState(db, uid, st.step, d);
     return setKB(interestsKB(d));
   }
@@ -290,16 +298,19 @@ async function handleCb(q, env) {
     return sendMsg(env, uid, "منوی اصلی:", MAIN_KB);
   }
 
-  // ─── درخت تگ‌های کمپین (v8) ───
+  // ─── درخت تگ‌های کمپین (v9) ───
   if (data.startsWith("ccat:") || data === "ccatback" || data.startsWith("csub:")) {
     const st = await getState(db, uid); if (!st) return;
     const d = JSON.parse(st.data || "{}"); d.csel = d.csel || [];
-    if (data.startsWith("ccat:")) d.ccat = data.slice(5);
-    else if (data === "ccatback") d.ccat = null;
-    else { const t = data.slice(5);
-      if (d.csel.includes(t)) d.csel.splice(d.csel.indexOf(t), 1);
-      else if (d.csel.length < 5) d.csel.push(t);
-      else return answerCb(env, q.id); }
+    if (data === "ccatback") d.ccat = null;
+    else if (data.startsWith("ccat:")) {
+      const c = CATEGORIES[parseInt(data.slice(5))];
+      if (c.subs.length === 1) { toggle(d.csel, leaf(c.name, c.subs[0])); d.ccat = null; }
+      else d.ccat = CATEGORIES.indexOf(c);
+    } else {
+      const [i, j] = data.slice(5).split(":").map(Number);
+      toggle(d.csel, leaf(CATEGORIES[i].name, CATEGORIES[i].subs[j]));
+    }
     await setState(db, uid, st.step, d);
     return setKB(campTagsKB(d));
   }
@@ -360,7 +371,7 @@ async function handleCb(q, env) {
     for (let i = 0; i < tickets; i++) await db.prepare("INSERT INTO lottery_tickets (user_id,source) VALUES (?,'stake')").bind(uid).run();
     await logTx(db, uid, "STAKE_LOCK", -d.amount, (await db.prepare("SELECT balance FROM users WHERE user_id=?").bind(uid).first()).balance);
     await clearState(db, uid);
-    return edit(`🔒 <b>${faNum(d.amount)} سکه</b> به مدت ${faNum(days)} روز قفل شد.\n🎰 +${faNum(tickets)} بلیت قرعه‌کشی\n💵 سود روزانه ۲٪ هنگام آزادسازی\n آزادسازی: ${faDate(unlock)} ساعت ${faTime(unlock)}`);
+    return edit(`🔒 <b>${faNum(d.amount)} سکه</b> به مدت ${faNum(days)} روز قفل شد.\n🎰 +${faNum(tickets)} بلیت قرعه‌کشی\n💵 سود روزانه ۲٪ هنگام آزادسازی\n🗓 آزادسازی: ${faDate(unlock)} ساعت ${faTime(unlock)}`);
   }
   if (data === "stake_unlock") {
     const rows = (await db.prepare("SELECT * FROM stakes WHERE user_id=? AND status='active'").bind(uid).all()).results;
@@ -454,7 +465,7 @@ async function handleCb(q, env) {
   }
 }
 
-// ─── موتور تطبیق + نشان وضعیت تسک (v8) ───
+// ─── موتور تطبیق + نشان وضعیت ───
 async function showDiscover(q, env, idx) {
   const db = env.DB, uid = q.from.id;
   const u = await db.prepare("SELECT * FROM users WHERE user_id=?").bind(uid).first();
