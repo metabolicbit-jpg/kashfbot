@@ -498,31 +498,39 @@ async function handleCb(q, env) {
   }
 }
 
-// ─── v10: موتور تطبیق بهبود یافته ───
+// ─── v10.1: موتور تطبیق + چرخش همه کانال‌ها ───
 async function showDiscover(q, env, idx) {
   const db = env.DB, uid = q.from.id;
   const u = await db.prepare("SELECT * FROM users WHERE user_id=?").bind(uid).first();
   const my = JSON.parse(u.interests || "[]");
-  // فیلتر گسترده‌تر: کانال‌های active یا paused که ربات ادمین است
   const allActive = (await db.prepare("SELECT * FROM channels WHERE status IN ('active','paused') AND bot_is_admin=1").all()).results;
-  const match = allActive.filter(c => JSON.parse(c.niches || "[]").some(t => my.includes(t)));
-  if (!match.length) {
-    const msg = allActive.length === 0
-      ? "😴 هیچ کمپین فعالی در سیستم کشف نیست.\nبه‌زودی کمپین‌های جدید اضافه می‌شوند."
-      : `😴 هیچ کمپینی مطابق علایق تو نیست.\n💡 <b>${faNum(allActive.length)}</b> کمپین فعال در سیستم هست ولی با تگ‌های تو همخوانی ندارد.\n\nبا «🎨 ویرایش علایق» تگ‌های دیگری اضافه کن (مثلاً «سرگرمی > سرگرمی» یا «خبری > خبری»).`;
-    return bale(env, "editMessageText", { chat_id: q.message.chat.id, message_id: q.message.message_id, text: msg, parse_mode: "HTML" });
-  }
-  const ch = match[idx % match.length];
-  const overlap = Math.round(JSON.parse(ch.niches).filter(t => my.includes(t)).length / Math.max(my.length, 1) * 100);
+  if (!allActive.length)
+    return bale(env, "editMessageText", { chat_id: q.message.chat.id, message_id: q.message.message_id,
+      text: "😴 هیچ کمپین فعالی در سیستم کشف نیست.\nبه‌زودی کمپین‌های جدید اضافه می‌شوند.", parse_mode: "HTML" });
+
+  // امتیازدهی: کانال‌های هم‌تگ اول، بقیه به‌عنوان پیشنهاد عمومی
+  const scored = allActive.map(c => ({ c, hit: JSON.parse(c.niches || "[]").filter(t => my.includes(t)).length }));
+  const list = [
+    ...scored.filter(x => x.hit > 0).sort((a, b) => b.hit - a.hit),
+    ...scored.filter(x => x.hit === 0)
+  ];
+  const pos = ((idx % list.length) + list.length) % list.length;
+  const { c: ch, hit } = list[pos];
+  const isMatch = hit > 0;
+  const overlap = Math.round(hit / Math.max(my.length, 1) * 100);
+
   const m = await db.prepare("SELECT status FROM memberships WHERE user_id=? AND channel_id=?").bind(uid, ch.id).first();
   const badge = m ? (m.status === "joined" ? "\n⏳ <i>وضعیت تو: در انتظار تأیید ۴۸ ساعته</i>" : m.status === "rewarded" ? "\n✅ <i>وضعیت تو: انجام شد</i>" : m.status === "assigned" ? "\n🔘 <i>وضعیت تو: شروع نشده</i>" : "\n⛔ <i>وضعیت تو: جریمه شد</i>") : "";
-  const statusNote = ch.status === "paused" ? "\n⚠️ <i>(کمپین موقتاً متوقف — تسک ثبت نمی‌شود)</i>" : "";
+  const statusNote = ch.status === "paused" ? "\n⚠️ <i>(کمپین موقتاً متوقف)</i>" : "";
   const typeEmoji = ch.chat_type === "channel" ? "📢" : ch.chat_type === "group" ? "👥" : "🤖";
+  const head = isMatch ? `🎯 تشابه: ${faNum(overlap)}٪` : "🌐 پیشنهاد عمومی";
+  const hint = isMatch ? "" : "\n💡 <i>این کانال با علایق تو همخوانی ندارد؛ فقط پیشنهاد عمومی است.</i>";
+
   await bale(env, "editMessageText", { chat_id: q.message.chat.id, message_id: q.message.message_id,
-    text: `🌟 ${typeEmoji} <b>${ch.title}</b> <i>(${faNum(idx + 1)} از ${faNum(match.length)})</i>\n🎯 تشابه: ${faNum(overlap)}٪ | 🪙 +${faNum(REWARD_COINS)}${badge}${statusNote}`, parse_mode: "HTML",
+    text: `🌟 ${typeEmoji} <b>${ch.title}</b> <i>(${faNum(pos + 1)} از ${faNum(list.length)})</i>\n${head} | 🪙 +${faNum(REWARD_COINS)}${badge}${statusNote}${hint}`, parse_mode: "HTML",
     reply_markup: { inline_keyboard: [
       [{ text: "🚀 شروع مأموریت", callback_data: "mission:" + ch.id }],
-      [{ text: "⏭ بعدی", callback_data: "next:" + (idx + 1) }, { text: "🚩 گزارش", callback_data: "report:" + ch.id }]] } });
+      [{ text: "⏭ بعدی", callback_data: "next:" + (pos + 1) }, { text: "🚩 گزارش", callback_data: "report:" + ch.id }]] } });
 }
 
 async function handlePayment(u, env) {
