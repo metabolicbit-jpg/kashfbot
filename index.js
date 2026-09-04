@@ -1,26 +1,60 @@
 // ═══════════════════════════════════════════
-// 🌱 KashfBot v7 — بات کشف مخاطب واقعی
+// 🌱 KashfBot v8 — بات کشف مخاطب واقعی
 // ═══════════════════════════════════════════
 const BOT_NAME = "کشف", CLUB_CHANNEL = "@KashfClub";
-const BOT_USERNAME = "kashfbot"; // برای ساخت لینک دعوت
+const BOT_USERNAME = "kashfbot";
 const BASE_PRICE = 100, COMMISSION_RATE = 0.2, RETENTION_HOURS = 48;
 const WELCOME_BONUS = 10, REWARD_COINS = 4, PENALTY_COINS = 8;
 const COST_PER_MEMBER = 4, MIN_CAMPAIGN = 25, TOMAN_TO_RIAL = 10;
-const TAGS = ["ورزش","طنز","اخبار","تکنولوژی","فروشگاهی","آموزشی","هنر","آشپزی","بازی","مذهبی"];
+
+// ─── درخت دسته‌بندی موضوعات (هماهنگ اونبوردینگ + کمپین) ───
+const CATEGORIES = [
+  { name: "ورزشی", emoji: "⚽", subs: ["فوتبال", "کشتی", "ورزش عمومی"] },
+  { name: "طنز و سرگرمی", emoji: "😂", subs: ["طنز", "کلیپ خنده‌دار", "موسیقی"] },
+  { name: "خبری", emoji: "📰", subs: ["اخبار ایران", "اخبار جهان", "اقتصاد و بازار"] },
+  { name: "تکنولوژی", emoji: "💻", subs: ["موبایل", "کامپیوتر", "هوش مصنوعی", "ارز دیجیتال"] },
+  { name: "فروشگاهی", emoji: "🛍️", subs: ["پوشاک", "لوازم خانگی", "آرایشی بهداشتی"] },
+  { name: "آموزشی", emoji: "🎓", subs: ["زبان خارجی", "کنکور و درسی", "مهارت آموزی"] },
+  { name: "هنر", emoji: "🎨", subs: ["عکاسی", "سینما و سریال", "خوشنویسی"] },
+  { name: "آشپزی", emoji: "🍳", subs: ["غذای ایرانی", "دسر و نوشیدنی", "فست فود"] },
+  { name: "بازی", emoji: "🎮", subs: ["بازی موبایل", "بازی کامپیوتر"] },
+  { name: "مذهبی", emoji: "🕌", subs: ["قرآن و ادعیه", "مداحی", "احکام"] }
+];
+
+// ─── ابزارهای تاریخ شمسی و اعداد فارسی ───
+const JALALI_MONTHS = ["فروردین","اردیبهشت","خرداد","تیر","مرداد","شهریور","مهر","آبان","آذر","دی","بهمن","اسفند"];
+const faNum = n => String(n).replace(/\d/g, d => "۰۱۲۳۴۵۶۷۸۹"[d]);
+function g2j(gy, gm, gd) {
+  const g_d_m = [0,31,59,90,120,151,181,212,243,273,304,334];
+  let jy = (gy <= 1600) ? 0 : 979;
+  gy -= (gy <= 1600) ? 621 : 1600;
+  const gy2 = (gm > 2) ? (gy + 1) : gy;
+  let days = (365*gy) + Math.floor((gy2+3)/4) - Math.floor((gy2+99)/100) + Math.floor((gy2+399)/400) - 80 + gd + g_d_m[gm-1];
+  jy += 33 * Math.floor(days/12053); days %= 12053;
+  jy += 4 * Math.floor(days/1461); days %= 1461;
+  if (days > 365) { jy += Math.floor((days-1)/365); days = (days-1)%365; }
+  const jm = (days < 186) ? 1+Math.floor(days/31) : 7+Math.floor((days-186)/30);
+  const jd = 1 + ((days < 186) ? (days%31) : ((days-186)%30));
+  return [jy, jm, jd];
+}
+const IR = iso => new Date(new Date(iso).getTime() + 3.5*3600*1000); // ساعت ایران
+function faDate(iso) { const d = IR(iso); const [jy,jm,jd] = g2j(d.getUTCFullYear(), d.getUTCMonth()+1, d.getUTCDate()); return `${faNum(jd)} ${JALALI_MONTHS[jm-1]} ${faNum(jy)}`; }
+function faTime(iso) { const d = IR(iso); return faNum(String(d.getUTCHours()).padStart(2,"0") + ":" + String(d.getUTCMinutes()).padStart(2,"0")); }
+const chunk = (arr, n) => Array.from({ length: Math.ceil(arr.length/n) }, (_, i) => arr.slice(i*n, i*n+n));
+
+const toEn = s => String(s || "").replace(/[۰-۹٠-٩]/g, d => {
+  const c = d.charCodeAt(0);
+  if (c >= 1776 && c <= 1785) return c - 1776;
+  if (c >= 1632 && c <= 1641) return c - 1632;
+  return d;
+});
 const PACKAGES = [
   { toman: 30000,  label: "بسته پایه" },
   { toman: 60000,  label: "بسته نقره‌ای" },
   { toman: 120000, label: "بسته طلایی" },
   { toman: 300000, label: "بسته الماس" }
 ];
-// تبدیل اعداد فارسی/عربی به انگلیسی با کد کاراکتر (ضدخطا)
-const toEn = s => String(s || "").replace(/[۰-۹٠-٩]/g, d => {
-  const c = d.charCodeAt(0);
-  if (c >= 1776 && c <= 1785) return c - 1776; // ۰ تا ۹ فارسی
-  if (c >= 1632 && c <= 1641) return c - 1632; // ٠ تا ٩ عربی
-  return d;
-});
-const HELP_TEXT = `📚 <b>راهنمای کشف</b>\n\n🪙 <b>کسب سکه:</b> عضویت در کانال‌های پیشنهادی (+۴) | مأموریت‌ها | دعوت دوستان\n⏳ <b>قانون ۴۸ ساعت:</b> خروج زودتر = −۸ سکه و اعتماد −۱۰\n🛡 <b>اعتماد:</b> هرچه بیشتر بمانی، پاداش بیشتر\n💎 <b>قیمت سکه:</b> پویا — با رشد تقاضا بالا می‌رود\n🔒 <b>استیک:</b> قفل سکه = سود روزانه ۲٪ + بلیت قرعه‌کشی\n📢 <b>ثبت کمپین:</b> هر عضو = ۴ سکه (حداقل ۲۵ عضو)`;
+const HELP_TEXT = `📚 <b>راهنمای کشف</b>\n\n🪙 <b>کسب سکه:</b> عضویت در کانال‌های پیشنهادی (+۴) | مأموریت‌ها | دعوت دوستان\n⏳ <b>قانون ۴۸ ساعت:</b> ماندگاری = مخاطب واقعی = ارزش بیشتر؛ خروج زودتر = −۸ سکه\n🛡 <b>اعتماد:</b> هرچه بیشتر بمانی، پاداش بیشتر\n💎 <b>قیمت سکه:</b> پویا — با رشد تقاضا بالا می‌رود\n🔒 <b>استیک:</b> قفل سکه = سود روزانه ۲٪ + بلیت قرعه‌کشی\n📢 <b>ثبت کمپین:</b> هر عضو = ۴ سکه (حداقل ۲۵ عضو)`;
 
 // ─── کلاینت API بله ───
 async function bale(env, method, payload = {}) {
@@ -42,10 +76,8 @@ async function getEconomy(db) {
 }
 const circulating = e => Math.max(e.total_minted - e.total_burned - e.total_locked, 0);
 const currentPrice = e => { const c = circulating(e); return c > 0 ? Math.max(BASE_PRICE, e.pool_value / c) : BASE_PRICE; };
-
 async function logTx(db, uid, type, amount, after, note = "") {
-  await db.prepare("INSERT INTO transactions (user_id,type,amount,balance_after,note) VALUES (?,?,?,?,?)")
-    .bind(uid, type, amount, after, note).run();
+  await db.prepare("INSERT INTO transactions (user_id,type,amount,balance_after,note) VALUES (?,?,?,?,?)").bind(uid, type, amount, after, note).run();
 }
 async function mintFromBudget(db, uid, coins) {
   const e = await getEconomy(db); const cost = coins * currentPrice(e);
@@ -74,31 +106,44 @@ async function payFromEscrow(db, uid, channelId, coins) {
   await logTx(db, uid, "TASK_REWARD", coins, u.balance, `ch#${channelId}`);
 }
 
-// ─── ماشین حالت مکالمه ───
+// ─── ماشین حالت ───
 async function setState(db, uid, step, data = {}) {
-  await db.prepare("INSERT INTO user_states (user_id,step,data) VALUES (?,?,?) ON CONFLICT(user_id) DO UPDATE SET step=excluded.step, data=excluded.data, updated_at=datetime('now')")
-    .bind(uid, step, JSON.stringify(data)).run();
+  await db.prepare("INSERT INTO user_states (user_id,step,data) VALUES (?,?,?) ON CONFLICT(user_id) DO UPDATE SET step=excluded.step, data=excluded.data, updated_at=datetime('now')").bind(uid, step, JSON.stringify(data)).run();
 }
 const getState = (db, uid) => db.prepare("SELECT * FROM user_states WHERE user_id=?").bind(uid).first();
 const clearState = (db, uid) => db.prepare("DELETE FROM user_states WHERE user_id=?").bind(uid).run();
 
-// ─── کیبوردها ───
+// ─── کیبوردها (v8: درخت دسته‌بندی سلسله‌مراتبی) ───
 const MAIN_KB = { keyboard: [
-  [{ text: "🌟 کشف کانال‌های جدید" }, { text: "📢 ثبت کمپین رشد" }],
-  [{ text: "🎯 مأموریت‌های امروز" }, { text: "👤 پروفایل و کیف پول" }],
+  [{ text: "🌟 کشف کانال، گروه و ربات" }, { text: "📢 ثبت کمپین رشد" }],
+  [{ text: "🎯 مأموریت‌های امروز" }, { text: "👤 پروفایل من" }],
   [{ text: "❓ راهنما و پشتیبانی" }]], resize_keyboard: true };
-const interestsKB = sel => ({ inline_keyboard: [
-  ...Array.from({ length: 5 }, (_, i) => TAGS.slice(i * 2, i * 2 + 2).map(t =>
-    ({ text: (sel.includes(t) ? "✅ " : "") + t, callback_data: "tag:" + t }))),
-  [{ text: "✅ ثبت علایق من", callback_data: "tags_done" }]] });
-const campTagsKB = sel => ({ inline_keyboard: [
-  ...Array.from({ length: 5 }, (_, i) => TAGS.slice(i * 2, i * 2 + 2).map(t =>
-    ({ text: (sel.includes(t) ? "✅ " : "") + t, callback_data: "ctag:" + t }))),
-  [{ text: "✅ ادامه", callback_data: "ctags_done" }],
-  [{ text: "❌ انصراف", callback_data: "cancel" }]] });
 const CANCEL_KB = { inline_keyboard: [[{ text: "❌ انصراف", callback_data: "cancel" }]] };
 
-// ─── استارت + رفرال خودکار (v7: باگ referred_by حل شد) ───
+function interestsKB(d) {
+  if (!d.cat) return { inline_keyboard: [
+    ...chunk(CATEGORIES.map(c => ({ text: `${c.emoji} ${c.name}`, callback_data: "cat:" + c.name })), 2),
+    [{ text: "✅ ثبت علایق من", callback_data: "tags_done" }]] };
+  const c = CATEGORIES.find(x => x.name === d.cat);
+  return { inline_keyboard: [
+    [{ text: `${c.emoji} ${c.name} — زیرشاخه را انتخاب کن`, callback_data: "noop" }],
+    ...chunk(c.subs.map(s => ({ text: ((d.sel||[]).includes(s) ? "✅ " : "") + s, callback_data: "sub:" + s })), 2),
+    [{ text: "🔙 بازگشت به دسته‌ها", callback_data: "catback" }],
+    [{ text: "✅ ثبت علایق من", callback_data: "tags_done" }]] };
+}
+function campTagsKB(d) {
+  if (!d.ccat) return { inline_keyboard: [
+    ...chunk(CATEGORIES.map(c => ({ text: `${c.emoji} ${c.name}`, callback_data: "ccat:" + c.name })), 2),
+    [{ text: "✅ ادامه", callback_data: "ctags_done" }], [{ text: "❌ انصراف", callback_data: "cancel" }]] };
+  const c = CATEGORIES.find(x => x.name === d.ccat);
+  return { inline_keyboard: [
+    [{ text: `${c.emoji} ${c.name} — زیرشاخه را انتخاب کن`, callback_data: "noop" }],
+    ...chunk(c.subs.map(s => ({ text: ((d.csel||[]).includes(s) ? "✅ " : "") + s, callback_data: "csub:" + s })), 2),
+    [{ text: "🔙 بازگشت", callback_data: "ccatback" }],
+    [{ text: "✅ ادامه", callback_data: "ctags_done" }], [{ text: "❌ انصراف", callback_data: "cancel" }]] };
+}
+
+// ─── استارت + رفرال ───
 async function handleStart(u, env) {
   const uid = u.message.from.id, db = env.DB;
   const text = u.message.text || "";
@@ -106,19 +151,14 @@ async function handleStart(u, env) {
   const exists = await db.prepare("SELECT * FROM users WHERE user_id=?").bind(uid).first();
   if (!exists) {
     const code = String(Math.floor(100000 + Math.random() * 900000));
-    // v7: ابتدا user_id دعوت‌کننده را پیدا کن، نه ref_code
     let refUserId = null;
-    if (ref) {
-      const r = await db.prepare("SELECT user_id FROM users WHERE ref_code=?").bind(ref).first();
-      if (r) refUserId = r.user_id;
-    }
+    if (ref) { const r = await db.prepare("SELECT user_id FROM users WHERE ref_code=?").bind(ref).first(); if (r) refUserId = r.user_id; }
     await db.prepare("INSERT INTO users (user_id,username,first_name,ref_code,referred_by) VALUES (?,?,?,?,?)")
       .bind(uid, u.message.from.username || "", u.message.from.first_name || "", code, refUserId).run();
-    if (refUserId) {
-      const ok = await mintFromBudget(db, refUserId, 15);
-      if (ok) await bale(env, "sendMessage", { chat_id: refUserId, text: "🎉 یک دوست با لینک تو عضو شد! <b>+۱۵ سکه</b>", parse_mode: "HTML" });
-    }
-    return sendMsg(env, uid, `🌱 به <b>${BOT_NAME}</b> خوش آمدی!\nبه چه موضوعاتی علاقه داری؟ (حداکثر ۵)`, interestsKB([]));
+    if (refUserId) { const ok = await mintFromBudget(db, refUserId, 15);
+      if (ok) await bale(env, "sendMessage", { chat_id: refUserId, text: "🎉 یک دوست با لینک تو عضو شد! <b>+۱۵ سکه</b>", parse_mode: "HTML" }); }
+    await setState(db, uid, "INTERESTS", { sel: [], cat: null });
+    return sendMsg(env, uid, `🌱 به <b>${BOT_NAME}</b> خوش آمدی!\nابتدا یک <b>دسته</b> را بزن، سپس زیرشاخه‌های مورد علاقه‌ات را انتخاب کن (حداکثر ۵):`, interestsKB({ sel: [], cat: null }));
   }
   await sendMsg(env, uid, `👋 خوش برگشتی!\n🪙 موجودی: <b>${exists.balance}</b> سکه`, MAIN_KB);
 }
@@ -126,31 +166,31 @@ async function handleStart(u, env) {
 // ─── منوی اصلی ───
 async function handleMenu(u, env) {
   const t = u.message.text, uid = u.message.from.id, db = env.DB;
-  if (t === "🌟 کشف کانال‌های جدید")
-    return sendMsg(env, uid, "برای کشف کانال‌های مرتبط دکمه بزن:",
+  if (t === "🌟 کشف کانال، گروه و ربات")
+    return sendMsg(env, uid, "برای کشف کانال، گروه و ربات‌های مرتبط با علایقت، دکمه «🌟 نمایش پیشنهاد» را بزن:",
       { inline_keyboard: [[{ text: "🌟 نمایش پیشنهاد", callback_data: "disc" }]] });
   if (t === "📢 ثبت کمپین رشد") {
     await setState(db, uid, "CAMP_USERNAME");
-    return sendMsg(env, uid, `📢 <b>ثبت کمپین رشد</b>\n\nشناسه کانال/گروه را بفرست (با @):\n⚠️ ربات باید در آن <b>ادمین</b> باشد.`, CANCEL_KB);
+    return sendMsg(env, uid, `📢 <b>ثبت کمپین رشد</b>\n\nشناسه کانال/گروه/ربات را بفرست (با @):\n⚠️ ربات باید در آن <b>ادمین</b> باشد.`, CANCEL_KB);
   }
   if (t === "🎯 مأموریت‌های امروز") return missionsHandler(uid, env);
-  if (t === "👤 پروفایل و کیف پول") {
+  if (t === "👤 پروفایل من") {
     const x = await db.prepare("SELECT * FROM users WHERE user_id=?").bind(uid).first();
     const link = `https://ble.ir/${BOT_USERNAME}?start=ref_${x.ref_code}`;
     return sendMsg(env, uid,
-      `👤 <b>${x.first_name}</b>\n🪙 موجودی: <b>${x.balance}</b> سکه\n🔒 استیک: <b>${x.staked}</b>\n🛡 اعتماد: <b>${x.trust_score}/100</b>\n\n🔗 <b>لینک دعوت تو</b> (هر دوست = +۱۵ سکه):\n<code>${link}</code>\n\n(روی لینک نگه‌دار و کپی کن، یا دکمه زیر را بزن)`,
+      `👤 <b>${x.first_name}</b>\n🪙 موجودی: <b>${x.balance}</b> سکه\n🔒 استیک: <b>${x.staked}</b>\n🛡 اعتماد: <b>${x.trust_score}/100</b>\n\n🔗 <b>لینک دعوت تو</b> (هر دوست = +۱۵ سکه):\n<code>${link}</code>`,
       { inline_keyboard: [
         [{ text: "📤 دریافت لینک دعوت", callback_data: "invitelink" }],
         [{ text: "👥 زیرمجموعه‌ها", callback_data: "refs" }, { text: "📋 کمپین‌های من", callback_data: "mycams" }],
         [{ text: "💎 خرید سکه", callback_data: "buy" }, { text: "📊 آمار سیستم", callback_data: "stats" }],
         [{ text: "🔒 قفل سکه", callback_data: "stake_start" }, { text: "🔓 آزادسازی", callback_data: "stake_unlock" }],
-        [{ text: "🎰 بلیت‌های من", callback_data: "tickets" }]] });
+        [{ text: "📊 گزارش استیک", callback_data: "stake_report" }, { text: "🎰 بلیت‌های من", callback_data: "tickets" }],
+        [{ text: "🎨 ویرایش علایق", callback_data: "edit_interests" }]] });
   }
   if (t === "❓ راهنما و پشتیبانی")
     return sendMsg(env, uid, HELP_TEXT, { inline_keyboard: [[{ text: "📨 پیام به پشتیبانی", callback_data: "support_start" }]] });
 }
 
-// ─── مأموریت‌ها ───
 async function missionsHandler(uid, env) {
   const db = env.DB;
   const rewarded = await db.prepare("SELECT COUNT(*) c FROM memberships WHERE user_id=? AND status='rewarded'").bind(uid).first();
@@ -160,22 +200,26 @@ async function missionsHandler(uid, env) {
     { inline_keyboard: [[clubTaken ? { text: "✅ دریافت شد", callback_data: "noop" } : { text: "✅ عضویت در کانال مرکزی", callback_data: "claim_club" }]] });
 }
 
-// ─── متن‌های وسط مکالمه (ماشین حالت) ───
+// ─── متن‌های ماشین حالت ───
 async function handleStateText(u, env, st) {
   const db = env.DB, uid = u.message.from.id, text = (u.message.text || "").trim();
   const d = JSON.parse(st.data || "{}");
 
+  if (st.step === "INTERESTS" || st.step === "CAMP_TAGS")
+    return sendMsg(env, uid, "لطفاً فقط از دکمه‌های زیر استفاده کن 🙂");
+
   if (st.step === "CAMP_USERNAME") {
     const uname = text.replace(/^@/, "");
     const res = await bale(env, "getChat", { chat_id: "@" + uname });
-    if (!res.ok) return sendMsg(env, uid, "❌ کانال/گروه پیدا نشد. با @ بفرست.", CANCEL_KB);
+    if (!res.ok) return sendMsg(env, uid, "❌ کانال/گروه/ربات پیدا نشد. با @ بفرست.", CANCEL_KB);
     const me = await bale(env, "getMe");
     const adm = await bale(env, "getChatAdministrators", { chat_id: "@" + uname });
     if (!(adm.result || []).some(a => a.user?.id === me.result?.id))
-      return sendMsg(env, uid, "❌ ربات در این کانال <b>ادمین نیست</b>. اول ادمین کن.", CANCEL_KB);
+      return sendMsg(env, uid, "❌ ربات در آن <b>ادمین نیست</b>. اول ادمین کن.", CANCEL_KB);
     d.chat = { chat_id: String(res.result.id), username: uname, title: res.result.title || uname, type: res.result.type || "channel" };
+    d.csel = []; d.ccat = null;
     await setState(db, uid, "CAMP_TAGS", d);
-    return sendMsg(env, uid, `✅ «${d.chat.title}» تأیید شد.\n۱ تا ۵ تگ موضوعی انتخاب کن:`, campTagsKB([]));
+    return sendMsg(env, uid, `✅ «${d.chat.title}» تأیید شد.\nیک <b>دسته</b> را بزن و زیرشاخه‌های موضوعی کانالت را انتخاب کن (۱ تا ۵):`, campTagsKB(d));
   }
 
   if (st.step === "CAMP_TARGET") {
@@ -197,9 +241,9 @@ async function handleStateText(u, env, st) {
 
   if (st.step === "STAKE_AMOUNT") {
     const n = parseInt(toEn(text));
-    const u = await db.prepare("SELECT * FROM users WHERE user_id=?").bind(uid).first();
-    if (!n || n < 10) return sendMsg(env, uid, "❌ حداقل ۱۰ سکه.", CANCEL_KB);
-    if (n > u.balance) return sendMsg(env, uid, `❌ موجودی کافی نیست (داری: ${u.balance}).`, CANCEL_KB);
+    const x = await db.prepare("SELECT * FROM users WHERE user_id=?").bind(uid).first();
+    if (!n || n < 10) return sendMsg(env, uid, "❌ حداقل ۰ سکه.", CANCEL_KB);
+    if (n > x.balance) return sendMsg(env, uid, `❌ موجودی کافی نیست (داری: ${x.balance}).`, CANCEL_KB);
     d.amount = n;
     await setState(db, uid, "STAKE_PERIOD", d);
     return sendMsg(env, uid, `🔒 مقدار: <b>${n}</b> سکه\nدوره قفل را انتخاب کن:`,
@@ -212,59 +256,79 @@ async function handleCb(q, env) {
   const db = env.DB, uid = q.from.id, data = q.data;
   await answerCb(env, q.id);
   const edit = (text, rm) => bale(env, "editMessageText", { chat_id: q.message.chat.id, message_id: q.message.message_id, text, parse_mode: "HTML", ...(rm ? { reply_markup: rm } : {}) });
+  const setKB = rm => bale(env, "editMessageReplyMarkup", { chat_id: q.message.chat.id, message_id: q.message.message_id, reply_markup: rm });
 
   if (data === "noop") return;
   if (data === "cancel") { await clearState(db, uid); return edit("❌ انصراف شد."); }
   if (data === "disc") return showDiscover(q, env, 0);
   if (data.startsWith("next:")) return showDiscover(q, env, parseInt(data.slice(5)));
 
-  if (data.startsWith("report:")) {
-    await db.prepare("INSERT INTO reports (reporter_id,target_kind,target_id,reason) VALUES (?,?,?,?)").bind(uid, "channel", data.slice(7), "گزارش کاربر روی تسک کانال").run();
-    return edit("🚩 گزارش تو ثبت شد. ممنون که از کیفیت کشف محافظت می‌کنی.");
-  }
-
-  if (data.startsWith("tag:")) {
-    const t = data.slice(4);
-    const sel = (q.message.reply_markup.inline_keyboard || []).flat().filter(b => b.text.startsWith("✅")).map(b => b.text.slice(2));
-    if (sel.includes(t)) sel.splice(sel.indexOf(t), 1); else if (sel.length < 5) sel.push(t);
-    return bale(env, "editMessageReplyMarkup", { chat_id: q.message.chat.id, message_id: q.message.message_id, reply_markup: interestsKB(sel) });
+  // ─── درخت علایق کاربر (v8) ───
+  if (data.startsWith("cat:") || data === "catback" || data.startsWith("sub:")) {
+    const st = await getState(db, uid); if (!st) return;
+    const d = JSON.parse(st.data || "{}"); d.sel = d.sel || [];
+    if (data.startsWith("cat:")) d.cat = data.slice(4);
+    else if (data === "catback") d.cat = null;
+    else { const t = data.slice(4);
+      if (d.sel.includes(t)) d.sel.splice(d.sel.indexOf(t), 1);
+      else if (d.sel.length < 5) d.sel.push(t);
+      else return answerCb(env, q.id); }
+    await setState(db, uid, st.step, d);
+    return setKB(interestsKB(d));
   }
   if (data === "tags_done") {
-    const sel = (q.message.reply_markup.inline_keyboard || []).flat().filter(b => b.text.startsWith("✅")).map(b => b.text.slice(2));
-    if (!sel.length) return;
+    const st = await getState(db, uid); if (!st) return;
+    const d = JSON.parse(st.data || "{}"); const sel = d.sel || [];
+    if (!sel.length) return edit("❌ حداقل یک زیرشاخه انتخاب کن.");
     await db.prepare("UPDATE users SET interests=? WHERE user_id=?").bind(JSON.stringify(sel), uid).run();
-    const ok = await mintFromBudget(db, uid, WELCOME_BONUS);
-    await edit(`✅ علایق ثبت شد!${ok ? `\n🎁 +${WELCOME_BONUS} سکه` : ""}`);
+    let bonus = "";
+    const got = await db.prepare("SELECT 1 x FROM transactions WHERE user_id=? AND note='welcome'").bind(uid).first();
+    if (!got) { const ok = await mintFromBudget(db, uid, WELCOME_BONUS);
+      if (ok) { await logTx(db, uid, "WELCOME", 0, (await db.prepare("SELECT balance FROM users WHERE user_id=?").bind(uid).first()).balance, "welcome"); bonus = `\n🎁 +${WELCOME_BONUS} سکه`; } }
+    await clearState(db, uid);
+    await edit(`✅ علایق ثبت شد (${faNum(sel.length)} موضوع)!${bonus}`);
     return sendMsg(env, uid, "منوی اصلی:", MAIN_KB);
   }
 
-  if (data.startsWith("ctag:")) {
-    const t = data.slice(5);
-    const sel = (q.message.reply_markup.inline_keyboard || []).flat().filter(b => b.text.startsWith("✅")).map(b => b.text.slice(2));
-    if (sel.includes(t)) sel.splice(sel.indexOf(t), 1); else if (sel.length < 5) sel.push(t);
-    return bale(env, "editMessageReplyMarkup", { chat_id: q.message.chat.id, message_id: q.message.message_id, reply_markup: campTagsKB(sel) });
+  // ─── درخت تگ‌های کمپین (v8) ───
+  if (data.startsWith("ccat:") || data === "ccatback" || data.startsWith("csub:")) {
+    const st = await getState(db, uid); if (!st) return;
+    const d = JSON.parse(st.data || "{}"); d.csel = d.csel || [];
+    if (data.startsWith("ccat:")) d.ccat = data.slice(5);
+    else if (data === "ccatback") d.ccat = null;
+    else { const t = data.slice(5);
+      if (d.csel.includes(t)) d.csel.splice(d.csel.indexOf(t), 1);
+      else if (d.csel.length < 5) d.csel.push(t);
+      else return answerCb(env, q.id); }
+    await setState(db, uid, st.step, d);
+    return setKB(campTagsKB(d));
   }
   if (data === "ctags_done") {
-    const sel = (q.message.reply_markup.inline_keyboard || []).flat().filter(b => b.text.startsWith("✅")).map(b => b.text.slice(2));
-    if (!sel.length) return;
-    const st = await getState(db, uid); const d = JSON.parse(st.data || "{}");
+    const st = await getState(db, uid); if (!st) return;
+    const d = JSON.parse(st.data || "{}"); const sel = d.csel || [];
+    if (!sel.length) return edit("❌ حداقل یک زیرشاخه انتخاب کن.");
     d.tags = sel;
     await setState(db, uid, "CAMP_TARGET", d);
     return edit(`✅ تگ‌ها: ${sel.join("، ")}\n\nتعداد عضو هدف را بفرست (حداقل ${MIN_CAMPAIGN}):`);
   }
 
+  if (data.startsWith("report:")) {
+    await db.prepare("INSERT INTO reports (reporter_id,target_kind,target_id,reason) VALUES (?,?,?,?)").bind(uid, "channel", data.slice(7), "گزارش کاربر روی تسک کانال").run();
+    return edit("🚩 گزارش تو ثبت شد. ممنون که از کیفیت کشف محافظت می‌کنی.");
+  }
+
   if (data === "camp_confirm") {
     const st = await getState(db, uid); if (!st) return;
     const d = JSON.parse(st.data || "{}");
-    const u = await db.prepare("SELECT * FROM users WHERE user_id=?").bind(uid).first();
-    if (u.balance < d.cost)
-      return edit(`❌ موجودی کافی نیست.\nنیاز: <b>${d.cost}</b> | داری: <b>${u.balance}</b>`,
+    const x = await db.prepare("SELECT * FROM users WHERE user_id=?").bind(uid).first();
+    if (x.balance < d.cost)
+      return edit(`❌ موجودی کافی نیست.\nنیاز: <b>${d.cost}</b> | داری: <b>${x.balance}</b>`,
         { inline_keyboard: [[{ text: "💎 خرید سکه", callback_data: "buy" }], [{ text: "❌ انصراف", callback_data: "cancel" }]] });
     await db.prepare("UPDATE users SET balance=balance-? WHERE user_id=?").bind(d.cost, uid).run();
     await db.prepare("UPDATE economy_state SET total_locked=total_locked+? WHERE id=1").bind(d.cost).run();
     await db.prepare("INSERT INTO channels (owner_id,chat_id,username,chat_type,title,niches,budget_coins,target,bot_is_admin,status) VALUES (?,?,?,?,?,?,?,?,1,'active')")
       .bind(uid, d.chat.chat_id, d.chat.username, d.chat.type, d.chat.title, JSON.stringify(d.tags), d.cost, d.target).run();
-    await logTx(db, uid, "ESCROW", -d.cost, u.balance - d.cost, d.chat.username);
+    await logTx(db, uid, "ESCROW", -d.cost, x.balance - d.cost, d.chat.username);
     await clearState(db, uid);
     await edit(`🚀 <b>کمپین زنده شد!</b>\n📢 ${d.chat.title} | 👥 ${d.target} عضو واقعی\nموتور تطبیق از حالا مخاطبِ علاقه‌مند می‌فرستد.`);
     return sendMsg(env, uid, "منوی اصلی:", MAIN_KB);
@@ -272,18 +336,14 @@ async function handleCb(q, env) {
 
   if (data === "buy") {
     const e = await getEconomy(db); const p = currentPrice(e);
-    return edit(`💎 <b>فروشگاه سکه</b> (قیمت لحظه‌ای: ${Math.round(p)} تومان)\nیک بسته انتخاب کن:`,
-      { inline_keyboard: PACKAGES.map(k => [{ text: `${k.label} — ${Math.floor(k.toman * 0.8 / p)} سکه | ${k.toman.toLocaleString("fa-IR")} تومان`, callback_data: "buy:" + k.toman }]) });
+    return edit(`💎 <b>فروشگاه سکه</b> (قیمت لحظه‌ای: ${faNum(Math.round(p))} تومان)\nیک بسته انتخاب کن:`,
+      { inline_keyboard: PACKAGES.map(k => [{ text: `${k.label} — ${faNum(Math.floor(k.toman * 0.8 / p))} سکه | ${k.toman.toLocaleString("fa-IR")} تومان`, callback_data: "buy:" + k.toman }]) });
   }
   if (data.startsWith("buy:")) {
     const toman = parseInt(data.slice(4));
     const payload = `pay_${Date.now()}_${uid}`;
     await db.prepare("INSERT INTO payments (user_id,payload,amount_toman) VALUES (?,?,?)").bind(uid, payload, toman).run();
-    await bale(env, "sendInvoice", {
-      chat_id: uid, title: "خرید سکه کشف", description: `بسته ${toman.toLocaleString("fa-IR")} تومانی`,
-      payload: payload, provider_token: env.WALLET_TOKEN,
-      prices: [{ label: "مبلغ بسته (ریال)", amount: toman * TOMAN_TO_RIAL }]
-    });
+    await bale(env, "sendInvoice", { chat_id: uid, title: "خرید سکه کشف", description: `بسته ${toman.toLocaleString("fa-IR")} تومانی`, payload, provider_token: env.WALLET_TOKEN, prices: [{ label: "مبلغ بسته (ریال)", amount: toman * TOMAN_TO_RIAL }] });
     return;
   }
 
@@ -300,7 +360,7 @@ async function handleCb(q, env) {
     for (let i = 0; i < tickets; i++) await db.prepare("INSERT INTO lottery_tickets (user_id,source) VALUES (?,'stake')").bind(uid).run();
     await logTx(db, uid, "STAKE_LOCK", -d.amount, (await db.prepare("SELECT balance FROM users WHERE user_id=?").bind(uid).first()).balance);
     await clearState(db, uid);
-    return edit(`🔒 <b>${d.amount} سکه</b> به مدت ${days} روز قفل شد.\n🎰 +${tickets} بلیت قرعه‌کشی\n💵 سود روزانه ۲٪ هنگام آزادسازی`);
+    return edit(`🔒 <b>${faNum(d.amount)} سکه</b> به مدت ${faNum(days)} روز قفل شد.\n🎰 +${faNum(tickets)} بلیت قرعه‌کشی\n💵 سود روزانه ۲٪ هنگام آزادسازی\n آزادسازی: ${faDate(unlock)} ساعت ${faTime(unlock)}`);
   }
   if (data === "stake_unlock") {
     const rows = (await db.prepare("SELECT * FROM stakes WHERE user_id=? AND status='active'").bind(uid).all()).results;
@@ -313,34 +373,39 @@ async function handleCb(q, env) {
         await db.prepare("UPDATE economy_state SET total_locked=total_locked-? WHERE id=1").bind(s.amount).run();
         await db.prepare("UPDATE stakes SET status='unlocked' WHERE id=?").bind(s.id).run();
         await logTx(db, uid, "STAKE_UNLOCK", s.amount, (await db.prepare("SELECT balance FROM users WHERE user_id=?").bind(uid).first()).balance);
-        msg += `✅ ${s.amount} سکه آزاد شد + سود ${yieldC || 0}\n`;
-      } else msg += `⏳ یک استیک تا ${s.unlock_at.slice(0, 10)} فعال است\n`;
+        msg += `✅ ${faNum(s.amount)} سکه آزاد شد + سود ${faNum(yieldC || 0)}\n`;
+      } else msg += `⏳ یک استیک تا ${faDate(s.unlock_at)} ساعت ${faTime(s.unlock_at)} فعال است\n`;
     }
     return edit(msg || "❌ استیکی نداری.");
   }
+  if (data === "stake_report") {
+    const rows = (await db.prepare("SELECT * FROM stakes WHERE user_id=? ORDER BY id DESC LIMIT 10").bind(uid).all()).results;
+    if (!rows.length) return edit("❌ استیکی نداری.");
+    const list = rows.map(s => `${s.status === "active" ? "🟢 فعال" : "🔓 آزادشده"} | ${faNum(s.amount)} سکه\nشروع: ${faDate(s.start_at)} | پایان: ${faDate(s.unlock_at)} ساعت ${faTime(s.unlock_at)}`).join("\n──────────\n");
+    return edit(`📊 <b>گزارش استیک</b>\n\n${list}`);
+  }
   if (data === "tickets") {
     const c = await db.prepare("SELECT COUNT(*) c FROM lottery_tickets WHERE user_id=?").bind(uid).first();
-    return edit(`🎰 بلیت‌های قرعه‌کشی تو: <b>${c.c}</b>\n🏆 قرعه‌کشی ماهانه به‌صورت زنده برگزار می‌شود.`);
+    return edit(`🎰 بلیت‌های قرعه‌کشی تو: <b>${faNum(c.c)}</b>\n🏆 قرعه‌کشی ماهانه به‌صورت زنده برگزار می‌شود.`);
   }
 
-  // ─── v7: آمار زیرمجموعه‌ها + کمپین‌ها + لینک دعوت ───
+  if (data === "edit_interests") {
+    const x = await db.prepare("SELECT interests FROM users WHERE user_id=?").bind(uid).first();
+    const sel = JSON.parse(x.interests || "[]");
+    await setState(db, uid, "INTERESTS", { sel, cat: null });
+    return edit("🎨 دسته‌ها را بازبینی کن:", interestsKB({ sel, cat: null }));
+  }
   if (data === "invitelink") {
     const x = await db.prepare("SELECT ref_code FROM users WHERE user_id=?").bind(uid).first();
-    const link = `https://ble.ir/${BOT_USERNAME}?start=ref_${x.ref_code}`;
-    return sendMsg(env, uid, `🔗 لینک دعوت تو:\n${link}\n\n🎁 هر دوست که با این لینک عضو شود = <b>+۱۵ سکه</b> برای تو!\n(این پیام را می‌توانی مستقیم فوروارد کنی)`);
+    return sendMsg(env, uid, `🔗 لینک دعوت تو:\nhttps://ble.ir/${BOT_USERNAME}?start=ref_${x.ref_code}\n\n🎁 هر دوست = <b>+۱۵ سکه</b> (قابل فوروارد)`);
   }
-
   if (data === "refs") {
     const total = await db.prepare("SELECT COUNT(*) c FROM users WHERE referred_by=?").bind(uid).first();
     const rows = (await db.prepare("SELECT first_name, created_at FROM users WHERE referred_by=? ORDER BY created_at DESC LIMIT 10").bind(uid).all()).results;
     const x = await db.prepare("SELECT ref_code FROM users WHERE user_id=?").bind(uid).first();
-    const link = `https://ble.ir/${BOT_USERNAME}?start=ref_${x.ref_code}`;
-    const list = rows.length
-      ? rows.map((r, i) => `${i + 1}. ${r.first_name || "بدون نام"} - ${String(r.created_at || "").slice(0, 10)}`).join("\n")
-      : "هنوز کسی را دعوت نکرده‌ای!";
-    return edit(`👥 <b>زیرمجموعه‌های تو</b>\n\n👤 تعداد کل: <b>${total.c}</b>\n💰 جایزه هر زیرمجموعه: <b>۱۵ سکه</b>\n\n📋 <b>۱۰ نفر آخر:</b>\n${list}\n\n🔗 <b>لینک دعوت:</b>\n<code>${link}</code>\n\n📢 این لینک را برای دوستانت بفرست تا زیرمجموعه‌ات شوند!`);
+    const list = rows.length ? rows.map((r, i) => `${faNum(i + 1)}. ${r.first_name || "بدون نام"} - ${faDate(r.created_at)}`).join("\n") : "هنوز کسی را دعوت نکرده‌ای!";
+    return edit(`👥 <b>زیرمجموعه‌های تو</b>\n\n👤 تعداد کل: <b>${faNum(total.c)}</b>\n💰 جایزه هر زیرمجموعه: <b>۱۵ سکه</b>\n\n📋 <b>۱۰ نفر آخر:</b>\n${list}\n\n🔗 <b>لینک دعوت:</b>\n<code>https://ble.ir/${BOT_USERNAME}?start=ref_${x.ref_code}</code>`);
   }
-
   if (data === "mycams") {
     const rows = (await db.prepare("SELECT * FROM channels WHERE owner_id=? ORDER BY id DESC LIMIT 10").bind(uid).all()).results;
     if (!rows.length) return edit("❌ هنوز کمپینی ثبت نکرده‌ای.\nاز منوی «📢 ثبت کمپین رشد» شروع کن.");
@@ -348,7 +413,7 @@ async function handleCb(q, env) {
     const list = rows.map(ch => {
       const remain = Math.max(ch.target - ch.acquired, 0);
       const pct = ch.target > 0 ? Math.min(Math.round((ch.acquired / ch.target) * 100), 100) : 0;
-      return `📢 <b>${ch.title}</b> (@${ch.username})\n📊 درخواست: <b>${ch.target}</b> | دریافت: <b>${ch.acquired}</b> | باقی‌مانده: <b>${remain}</b>\n📈 پیشرفت: <b>${pct}٪</b>\nوضعیت: ${statusFa(ch.status)}\n──────────`;
+      return `📢 <b>${ch.title}</b> (@${ch.username})\n📊 درخواست: ${faNum(ch.target)} | دریافت: ${faNum(ch.acquired)} | باقی: ${faNum(remain)}\n📈 پیشرفت: ${faNum(pct)}٪ | وضعیت: ${statusFa(ch.status)}\n📅 ثبت: ${faDate(ch.created_at)}\n──────────`;
     }).join("\n");
     return edit(`📋 <b>کمپین‌های تو</b>\n\n${list}`);
   }
@@ -359,17 +424,20 @@ async function handleCb(q, env) {
     if (!["member", "creator", "administrator"].includes(res.result?.status)) return edit("❌ هنوز عضو کانال مرکزی نشده‌ای!");
     const ok = await mintFromBudget(db, uid, 5);
     if (ok) await logTx(db, uid, "MISSION_CLUB", 5, (await db.prepare("SELECT balance FROM users WHERE user_id=?").bind(uid).first()).balance);
-    return edit(ok ? "🎉 +۵ سکه" : " بودجه مأموریت خالی است.");
+    return edit(ok ? "🎉 + سکه" : " بودجه مأموریت خالی است.");
   }
   if (data === "stats") {
     const e = await getEconomy(db);
-    return edit(`📊 <b>اقتصاد کشف</b>\n💰 پشتوانه: ${Math.round(e.pool_value)} ت\n🪙 ضرب: ${e.total_minted} | 🔥 سوخت: ${e.total_burned}\n🔒 قفل: ${e.total_locked}\n💎 قیمت لحظه‌ای: <b>${Math.round(currentPrice(e))}</b> تومان`);
+    return edit(`📊 <b>اقتصاد کشف</b>\n💰 پشتوانه: ${faNum(Math.round(e.pool_value))} ت\n🪙 ضرب: ${faNum(e.total_minted)} | 🔥 سوخت: ${faNum(e.total_burned)}\n🔒 قفل: ${faNum(e.total_locked)}\n💎 قیمت لحظه‌ای: <b>${faNum(Math.round(currentPrice(e)))}</b> تومان`);
   }
 
   if (data.startsWith("mission:")) {
     const chId = parseInt(data.slice(8));
     const ch = await db.prepare("SELECT * FROM channels WHERE id=?").bind(chId).first();
     if (!ch || ch.budget_coins < REWARD_COINS) return edit("⚠️ بودجه کمپین تمام شده.");
+    const m = await db.prepare("SELECT status FROM memberships WHERE user_id=? AND channel_id=?").bind(uid, chId).first();
+    if (m && m.status === "joined") return edit("⏳ تو قبلاً در این کانال عضو شدی و در انتظار تأیید ۴۸ ساعته‌ای.\nبا «بعدی» تسک جدید بگیر.");
+    if (m && m.status === "rewarded") return edit("✅ قبلاً پاداش این کانال را گرفته‌ای.\nبا «بعدی» تسک جدید بگیر.");
     const r = await db.prepare("INSERT INTO memberships (user_id,channel_id,status) VALUES (?,?,'assigned')").bind(uid, chId).run();
     return edit(`📢 عضو شو: <b>@${ch.username}</b>`, { inline_keyboard: [[{ text: "✅ عضو شدم", callback_data: "joined:" + r.meta.last_row_id }, { text: "🚩 گزارش", callback_data: "report:" + chId }]] });
   }
@@ -382,22 +450,25 @@ async function handleCb(q, env) {
       return edit("❌ هنوز عضو نشده‌ای!", { inline_keyboard: [[{ text: "🔄 بررسی دوباره", callback_data: "joined:" + mId }]] });
     const now = new Date(), check = new Date(now.getTime() + RETENTION_HOURS * 3600 * 1000).toISOString();
     await db.prepare("UPDATE memberships SET status='joined', joined_at=?, check_at=? WHERE id=?").bind(now.toISOString(), check, mId).run();
-    return edit("✅ عضویت ثبت شد!\n🪙 +۴ سکه پس از تأیید ۴۸ ساعته");
+    return edit(`✅ عضویت ثبت شد!\n🪙 + سکه پس از تأیید ماندگاری (تا ${faDate(check)} ساعت ${faTime(check)})`);
   }
 }
 
-// ─── موتور تطبیق ───
+// ─── موتور تطبیق + نشان وضعیت تسک (v8) ───
 async function showDiscover(q, env, idx) {
   const db = env.DB, uid = q.from.id;
   const u = await db.prepare("SELECT * FROM users WHERE user_id=?").bind(uid).first();
   const my = JSON.parse(u.interests || "[]");
   const chs = (await db.prepare("SELECT * FROM channels WHERE status='active'").all()).results;
   const match = chs.filter(c => JSON.parse(c.niches || "[]").some(t => my.includes(t)));
-  if (!match.length) return bale(env, "editMessageText", { chat_id: q.message.chat.id, message_id: q.message.message_id, text: "😴 کمپین مطابق علایق تو نیست." });
+  if (!match.length) return bale(env, "editMessageText", { chat_id: q.message.chat.id, message_id: q.message.message_id, text: "😴 کمپین مطابق علایق تو نیست.\nبا «🎨 ویرایش علایق» دسته‌ها را بازبینی کن." });
   const ch = match[idx % match.length];
   const overlap = Math.round(JSON.parse(ch.niches).filter(t => my.includes(t)).length / Math.max(my.length, 1) * 100);
+  const m = await db.prepare("SELECT status FROM memberships WHERE user_id=? AND channel_id=?").bind(uid, ch.id).first();
+  const badge = m ? (m.status === "joined" ? "\n⏳ <i>وضعیت تو: در انتظار تأیید ۴۸ ساعته</i>" : m.status === "rewarded" ? "\n✅ <i>وضعیت تو: انجام شد</i>" : m.status === "assigned" ? "\n🔘 <i>وضعیت تو: شروع نشده</i>" : "\n⛔ <i>وضعیت تو: جریمه شد</i>") : "";
+  const typeEmoji = ch.chat_type === "channel" ? "📢" : "👥";
   await bale(env, "editMessageText", { chat_id: q.message.chat.id, message_id: q.message.message_id,
-    text: `🌟 <b>${ch.title}</b>\n🎯 تشابه: ${overlap}٪ | 🪙 +${REWARD_COINS}`, parse_mode: "HTML",
+    text: `🌟 ${typeEmoji} <b>${ch.title}</b>\n🎯 تشابه: ${faNum(overlap)}٪ | 🪙 +${faNum(REWARD_COINS)}${badge}`, parse_mode: "HTML",
     reply_markup: { inline_keyboard: [
       [{ text: "🚀 شروع مأموریت", callback_data: "mission:" + ch.id }],
       [{ text: "⏭ بعدی", callback_data: "next:" + (idx + 1) }, { text: "🚩 گزارش", callback_data: "report:" + ch.id }]] } });
@@ -410,12 +481,11 @@ async function handlePayment(u, env) {
   if (!pay || pay.status === "paid") return;
   const toman = sp.total_amount / TOMAN_TO_RIAL;
   const coins = await mintPurchase(db, u.message.from.id, toman);
-  await db.prepare("UPDATE payments SET status='paid', coins_granted=?, bale_transaction_id=? WHERE payload=?")
-    .bind(coins, sp.provider_payment_charge_id || "", sp.invoice_payload).run();
-  await sendMsg(env, u.message.from.id, `💎 خرید موفق!\n🪙 +<b>${coins}</b> سکه\n💰 پشتوانه اقتصاد رشد کرد 📈`, MAIN_KB);
+  await db.prepare("UPDATE payments SET status='paid', coins_granted=?, bale_transaction_id=? WHERE payload=?").bind(coins, sp.provider_payment_charge_id || "", sp.invoice_payload).run();
+  await sendMsg(env, u.message.from.id, `💎 خرید موفق!\n🪙 +<b>${faNum(coins)}</b> سکه\n💰 پشتوانه اقتصاد رشد کرد 📈`, MAIN_KB);
 }
 
-// ─── ابزارهای مدیر (قرعه‌کشی + گزارش‌ها) ───
+// ─── ابزارهای مدیر ───
 async function handleDraw(env, uid) {
   const db = env.DB;
   const tickets = (await db.prepare("SELECT * FROM lottery_tickets WHERE draw_id IS NULL").all()).results;
@@ -425,7 +495,7 @@ async function handleDraw(env, uid) {
   await db.prepare("UPDATE lottery_tickets SET draw_id=? WHERE draw_id IS NULL").bind(r.meta.last_row_id).run();
   const w = await db.prepare("SELECT first_name FROM users WHERE user_id=?").bind(win.user_id).first();
   await bale(env, "sendMessage", { chat_id: win.user_id, text: "🏆 تبریک! تو برنده قرعه‌کشی کشف شدی! 🎉\nبرای دریافت جایزه به پشتیبانی پیام بده." });
-  await sendMsg(env, uid, `🏆 برنده: <b>${w?.first_name || ""}</b> (<code>${win.user_id}</code>)\n📣 حالا در ${CLUB_CHANNEL} به‌صورت زنده اعلام کن (پروتکل شفافیت).`);
+  await sendMsg(env, uid, `🏆 برنده: <b>${w?.first_name || ""}</b> (<code>${win.user_id}</code>)\n📣 حالا در ${CLUB_CHANNEL} به‌صورت زنده اعلام کن.`);
 }
 async function handleReports(env, uid) {
   const db = env.DB;
@@ -434,7 +504,7 @@ async function handleReports(env, uid) {
   return sendMsg(env, uid, rows.map(x => `#${x.id} | ${x.target_kind}#${x.target_id}\n👤 ${x.reporter_id}\n📝 ${x.reason}\n──────────`).join("\n"));
 }
 
-// ─── کرون: نگهبانان اقتصاد ───
+// ─── کرون ───
 async function runCron(env) {
   const db = env.DB, now = new Date().toISOString();
   const due = (await db.prepare("SELECT * FROM memberships WHERE status='joined' AND check_at<=?").bind(now).all()).results;
@@ -489,7 +559,7 @@ async function route(u, env) {
   if (u.callback_query) return handleCb(u.callback_query, env);
   if (u.message?.text) {
     const t = u.message.text;
-    const MENU = ["🌟 کشف کانال‌های جدید","📢 ثبت کمپین رشد","🎯 مأموریت‌های امروز","👤 پروفایل و کیف پول","❓ راهنما و پشتیبانی"];
+    const MENU = ["🌟 کشف کانال، گروه و ربات","📢 ثبت کمپین رشد","🎯 مأموریت‌های امروز","👤 پروفایل من","❓ راهنما و پشتیبانی"];
     if (MENU.includes(t)) { await clearState(env.DB, u.message.from.id); return handleMenu(u, env); }
     const st = await getState(env.DB, u.message.from.id);
     if (st) return handleStateText(u, env, st);
