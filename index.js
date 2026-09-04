@@ -1,7 +1,8 @@
 // ═══════════════════════════════════════════
-// 🌱 KashfBot v6 — بات کشف مخاطب واقعی
+// 🌱 KashfBot v7 — بات کشف مخاطب واقعی
 // ═══════════════════════════════════════════
 const BOT_NAME = "کشف", CLUB_CHANNEL = "@KashfClub";
+const BOT_USERNAME = "kashfbot"; // برای ساخت لینک دعوت
 const BASE_PRICE = 100, COMMISSION_RATE = 0.2, RETENTION_HOURS = 48;
 const WELCOME_BONUS = 10, REWARD_COINS = 4, PENALTY_COINS = 8;
 const COST_PER_MEMBER = 4, MIN_CAMPAIGN = 25, TOMAN_TO_RIAL = 10;
@@ -12,7 +13,7 @@ const PACKAGES = [
   { toman: 120000, label: "بسته طلایی" },
   { toman: 300000, label: "بسته الماس" }
 ];
-// تبدیل اعداد فارسی/عربی به انگلیسی با کد کاراکتر (ضدخطا - v6)
+// تبدیل اعداد فارسی/عربی به انگلیسی با کد کاراکتر (ضدخطا)
 const toEn = s => String(s || "").replace(/[۰-۹٠-٩]/g, d => {
   const c = d.charCodeAt(0);
   if (c >= 1776 && c <= 1785) return c - 1776; // ۰ تا ۹ فارسی
@@ -97,7 +98,7 @@ const campTagsKB = sel => ({ inline_keyboard: [
   [{ text: "❌ انصراف", callback_data: "cancel" }]] });
 const CANCEL_KB = { inline_keyboard: [[{ text: "❌ انصراف", callback_data: "cancel" }]] };
 
-// ─── استارت + رفرال خودکار ───
+// ─── استارت + رفرال خودکار (v7: باگ referred_by حل شد) ───
 async function handleStart(u, env) {
   const uid = u.message.from.id, db = env.DB;
   const text = u.message.text || "";
@@ -105,15 +106,17 @@ async function handleStart(u, env) {
   const exists = await db.prepare("SELECT * FROM users WHERE user_id=?").bind(uid).first();
   if (!exists) {
     const code = String(Math.floor(100000 + Math.random() * 900000));
-    await db.prepare("INSERT INTO users (user_id,username,first_name,ref_code,referred_by) VALUES (?,?,?,?,?)")
-      .bind(uid, u.message.from.username || "", u.message.from.first_name || "", code, ref).run();
+    // v7: ابتدا user_id دعوت‌کننده را پیدا کن، نه ref_code
+    let refUserId = null;
     if (ref) {
-      const r = await db.prepare("SELECT * FROM users WHERE ref_code=?").bind(ref).first();
-      if (r) {
-        await db.prepare("UPDATE users SET referred_by=? WHERE user_id=?").bind(r.user_id, uid).run();
-        const ok = await mintFromBudget(db, r.user_id, 15);
-        if (ok) await bale(env, "sendMessage", { chat_id: r.user_id, text: "🎉 یک دوست با لینک تو عضو شد! <b>+۱۵ سکه</b>", parse_mode: "HTML" });
-      }
+      const r = await db.prepare("SELECT user_id FROM users WHERE ref_code=?").bind(ref).first();
+      if (r) refUserId = r.user_id;
+    }
+    await db.prepare("INSERT INTO users (user_id,username,first_name,ref_code,referred_by) VALUES (?,?,?,?,?)")
+      .bind(uid, u.message.from.username || "", u.message.from.first_name || "", code, refUserId).run();
+    if (refUserId) {
+      const ok = await mintFromBudget(db, refUserId, 15);
+      if (ok) await bale(env, "sendMessage", { chat_id: refUserId, text: "🎉 یک دوست با لینک تو عضو شد! <b>+۱۵ سکه</b>", parse_mode: "HTML" });
     }
     return sendMsg(env, uid, `🌱 به <b>${BOT_NAME}</b> خوش آمدی!\nبه چه موضوعاتی علاقه داری؟ (حداکثر ۵)`, interestsKB([]));
   }
@@ -133,9 +136,12 @@ async function handleMenu(u, env) {
   if (t === "🎯 مأموریت‌های امروز") return missionsHandler(uid, env);
   if (t === "👤 پروفایل و کیف پول") {
     const x = await db.prepare("SELECT * FROM users WHERE user_id=?").bind(uid).first();
+    const link = `https://ble.ir/${BOT_USERNAME}?start=ref_${x.ref_code}`;
     return sendMsg(env, uid,
-      `👤 <b>${x.first_name}</b>\n🪙 موجودی: <b>${x.balance}</b> سکه\n🔒 استیک: <b>${x.staked}</b>\n🛡 اعتماد: <b>${x.trust_score}/100</b>\n🔗 کد دعوت: <code>${x.ref_code}</code>`,
+      `👤 <b>${x.first_name}</b>\n🪙 موجودی: <b>${x.balance}</b> سکه\n🔒 استیک: <b>${x.staked}</b>\n🛡 اعتماد: <b>${x.trust_score}/100</b>\n\n🔗 <b>لینک دعوت تو</b> (هر دوست = +۱۵ سکه):\n<code>${link}</code>\n\n(روی لینک نگه‌دار و کپی کن، یا دکمه زیر را بزن)`,
       { inline_keyboard: [
+        [{ text: "📤 دریافت لینک دعوت", callback_data: "invitelink" }],
+        [{ text: "👥 زیرمجموعه‌ها", callback_data: "refs" }, { text: "📋 کمپین‌های من", callback_data: "mycams" }],
         [{ text: "💎 خرید سکه", callback_data: "buy" }, { text: "📊 آمار سیستم", callback_data: "stats" }],
         [{ text: "🔒 قفل سکه", callback_data: "stake_start" }, { text: "🔓 آزادسازی", callback_data: "stake_unlock" }],
         [{ text: "🎰 بلیت‌های من", callback_data: "tickets" }]] });
@@ -317,13 +323,43 @@ async function handleCb(q, env) {
     return edit(`🎰 بلیت‌های قرعه‌کشی تو: <b>${c.c}</b>\n🏆 قرعه‌کشی ماهانه به‌صورت زنده برگزار می‌شود.`);
   }
 
+  // ─── v7: آمار زیرمجموعه‌ها + کمپین‌ها + لینک دعوت ───
+  if (data === "invitelink") {
+    const x = await db.prepare("SELECT ref_code FROM users WHERE user_id=?").bind(uid).first();
+    const link = `https://ble.ir/${BOT_USERNAME}?start=ref_${x.ref_code}`;
+    return sendMsg(env, uid, `🔗 لینک دعوت تو:\n${link}\n\n🎁 هر دوست که با این لینک عضو شود = <b>+۱۵ سکه</b> برای تو!\n(این پیام را می‌توانی مستقیم فوروارد کنی)`);
+  }
+
+  if (data === "refs") {
+    const total = await db.prepare("SELECT COUNT(*) c FROM users WHERE referred_by=?").bind(uid).first();
+    const rows = (await db.prepare("SELECT first_name, created_at FROM users WHERE referred_by=? ORDER BY created_at DESC LIMIT 10").bind(uid).all()).results;
+    const x = await db.prepare("SELECT ref_code FROM users WHERE user_id=?").bind(uid).first();
+    const link = `https://ble.ir/${BOT_USERNAME}?start=ref_${x.ref_code}`;
+    const list = rows.length
+      ? rows.map((r, i) => `${i + 1}. ${r.first_name || "بدون نام"} - ${String(r.created_at || "").slice(0, 10)}`).join("\n")
+      : "هنوز کسی را دعوت نکرده‌ای!";
+    return edit(`👥 <b>زیرمجموعه‌های تو</b>\n\n👤 تعداد کل: <b>${total.c}</b>\n💰 جایزه هر زیرمجموعه: <b>۱۵ سکه</b>\n\n📋 <b>۱۰ نفر آخر:</b>\n${list}\n\n🔗 <b>لینک دعوت:</b>\n<code>${link}</code>\n\n📢 این لینک را برای دوستانت بفرست تا زیرمجموعه‌ات شوند!`);
+  }
+
+  if (data === "mycams") {
+    const rows = (await db.prepare("SELECT * FROM channels WHERE owner_id=? ORDER BY id DESC LIMIT 10").bind(uid).all()).results;
+    if (!rows.length) return edit("❌ هنوز کمپینی ثبت نکرده‌ای.\nاز منوی «📢 ثبت کمپین رشد» شروع کن.");
+    const statusFa = s => s === "active" ? "🟢 فعال" : s === "paused" ? "🟡 متوقف موقت" : "🔴 حذف‌شده";
+    const list = rows.map(ch => {
+      const remain = Math.max(ch.target - ch.acquired, 0);
+      const pct = ch.target > 0 ? Math.min(Math.round((ch.acquired / ch.target) * 100), 100) : 0;
+      return `📢 <b>${ch.title}</b> (@${ch.username})\n📊 درخواست: <b>${ch.target}</b> | دریافت: <b>${ch.acquired}</b> | باقی‌مانده: <b>${remain}</b>\n📈 پیشرفت: <b>${pct}٪</b>\nوضعیت: ${statusFa(ch.status)}\n──────────`;
+    }).join("\n");
+    return edit(`📋 <b>کمپین‌های تو</b>\n\n${list}`);
+  }
+
   if (data === "support_start") { await setState(db, uid, "SUPPORT_MSG"); return edit("📨 پیام خود را کامل بنویس:"); }
   if (data === "claim_club") {
     const res = await bale(env, "getChatMember", { chat_id: env.CLUB_CHANNEL, user_id: uid });
     if (!["member", "creator", "administrator"].includes(res.result?.status)) return edit("❌ هنوز عضو کانال مرکزی نشده‌ای!");
     const ok = await mintFromBudget(db, uid, 5);
     if (ok) await logTx(db, uid, "MISSION_CLUB", 5, (await db.prepare("SELECT balance FROM users WHERE user_id=?").bind(uid).first()).balance);
-    return edit(ok ? "🎉 + سکه" : " بودجه مأموریت خالی است.");
+    return edit(ok ? "🎉 +۵ سکه" : " بودجه مأموریت خالی است.");
   }
   if (data === "stats") {
     const e = await getEconomy(db);
