@@ -1,11 +1,12 @@
 // ═══════════════════════════════════════════
-// 🌱 KashfBot v10 — Pilot 1 + Admin Panel
+// 🌱 KashfBot v11 — Pilot 2 Hardened
 // ═══════════════════════════════════════════
 const BOT_NAME = "کشف", CLUB_CHANNEL = "@KashfClub";
 const BOT_USERNAME = "kashfbot";
 const BASE_PRICE = 100, COMMISSION_RATE = 0.2, RETENTION_HOURS = 48;
 const WELCOME_BONUS = 10, REWARD_COINS = 4, PENALTY_COINS = 8;
 const COST_PER_MEMBER = 4, MIN_CAMPAIGN = 25, TOMAN_TO_RIAL = 10;
+const STAKE_DAILY_RATE = 0.005; // v11: تعدیل از 0.02 به 0.005
 
 const CATEGORIES = [
   { name: "خدمات کسب و کار", emoji: "💼", subs: ["مشاوره کسب و کار", "املاک و عمرانی", "خدمات مالی و بیمه", "سایر"] },
@@ -53,7 +54,7 @@ const PACKAGES = [
   { toman: 120000, label: "بسته طلایی" },
   { toman: 300000, label: "بسته الماس" }
 ];
-const HELP_TEXT = `📚 <b>راهنمای کشف</b>\n\n🪙 <b>کسب سکه:</b> عضویت در کانال‌های پیشنهادی (+۴) | مأموریت‌ها | دعوت دوستان\n⏳ <b>قانون ۴۸ ساعت:</b> ماندگاری = مخاطب واقعی؛ خروج زودتر = −۸ سکه\n🛡 <b>اعتماد:</b> هرچه بیشتر بمانی، پاداش بیشتر\n💎 <b>قیمت سکه:</b> پویا — با رشد تقاضا بالا می‌رود\n🔒 <b>استیک:</b> قفل سکه = سود روزانه ۲٪ + بلیت قرعه‌کشی\n📢 <b>ثبت کمپین:</b> هر عضو = ۴ سکه (حداقل ۲۵ عضو)\n🗂 <b>دسته‌بندی:</b> مطابق رده‌بندی رسمی بله`;
+const HELP_TEXT = `📚 <b>راهنمای کشف</b>\n\n🪙 <b>کسب سکه:</b> عضویت در کانال‌های پیشنهادی (+۴) | مأموریت‌ها | دعوت دوستان\n⏳ <b>قانون ۴۸ ساعت:</b> ماندگاری = مخاطب واقعی؛ خروج زودتر = −۸ سکه\n🛡 <b>اعتماد:</b> هرچه بیشتر بمانی، پاداش بیشتر\n💎 <b>قیمت سکه:</b> پویا — با رشد تقاضا بالا می‌رود\n🔒 <b>استیک:</b> قفل سکه = سود روزانه ۰.۵٪ + بلیت قرعه‌کشی\n📢 <b>ثبت کمپین:</b> هر عضو = ۴ سکه (حداقل ۲۵ عضو)\n🗂 <b>دسته‌بندی:</b> مطابق رده‌بندی رسمی بله`;
 
 async function bale(env, method, payload = {}) {
   const r = await fetch(`https://tapi.bale.ai/bot${env.BALE_BOT_TOKEN}/${method}`, {
@@ -107,6 +108,19 @@ async function payFromEscrow(db, uid, channelId, coins) {
   await db.prepare("UPDATE economy_state SET total_locked=total_locked-? WHERE id=1").bind(coins).run();
   const u = await db.prepare("SELECT balance FROM users WHERE user_id=?").bind(uid).first();
   await logTx(db, uid, "TASK_REWARD", coins, u.balance, `ch#${channelId}`);
+}
+
+// ─── v11: بازگشت باقی‌مانده اسکرو به مالک ───
+async function refundEscrow(env, db, chId, reason = "") {
+  const ch = await db.prepare("SELECT * FROM channels WHERE id=?").bind(chId).first();
+  if (!ch || !ch.owner_id || ch.budget_coins <= 0) return;
+  const refund = ch.budget_coins;
+  await db.prepare("UPDATE users SET balance=balance+? WHERE user_id=?").bind(refund, ch.owner_id).run();
+  await db.prepare("UPDATE channels SET budget_coins=0 WHERE id=?").bind(chId).run();
+  await db.prepare("UPDATE economy_state SET total_locked=total_locked-? WHERE id=1").bind(refund).run();
+  const u = await db.prepare("SELECT balance FROM users WHERE user_id=?").bind(ch.owner_id).first();
+  await logTx(db, ch.owner_id, "ESCROW_REFUND", refund, u.balance, reason);
+  await bale(env, "sendMessage", { chat_id: ch.owner_id, text: `💰 <b>${faNum(refund)} سکه</b> باقی‌مانده کمپین «${ch.title}» به حساب شما برگشت.\n📝 ${reason}`, parse_mode: "HTML" });
 }
 
 async function setState(db, uid, step, data = {}) {
@@ -243,12 +257,12 @@ async function handleStateText(u, env, st) {
   if (st.step === "STAKE_AMOUNT") {
     const n = parseInt(toEn(text));
     const x = await db.prepare("SELECT * FROM users WHERE user_id=?").bind(uid).first();
-    if (!n || n < 10) return sendMsg(env, uid, "❌ حداقل ۰ سکه.", CANCEL_KB);
+    if (!n || n < 10) return sendMsg(env, uid, "❌ حداقل ۱۰ سکه.", CANCEL_KB);
     if (n > x.balance) return sendMsg(env, uid, `❌ موجودی کافی نیست (داری: ${x.balance}).`, CANCEL_KB);
     d.amount = n;
     await setState(db, uid, "STAKE_PERIOD", d);
     return sendMsg(env, uid, `🔒 مقدار: <b>${n}</b> سکه\nدوره قفل را انتخاب کن:`,
-      { inline_keyboard: [[{ text: "۷ روز (روزانه ۲٪)", callback_data: "stake_period:7" }, { text: "۳۰ روز (روزانه ۲٪)", callback_data: "stake_period:30" }], [{ text: "❌ انصراف", callback_data: "cancel" }]] });
+      { inline_keyboard: [[{ text: `۷ روز (روزانه ${faNum(0.5)}٪)`, callback_data: "stake_period:7" }, { text: `۳۰ روز (روزانه ${faNum(0.5)}٪)`, callback_data: "stake_period:30" }], [{ text: "❌ انصراف", callback_data: "cancel" }]] });
   }
 }
 
@@ -264,7 +278,6 @@ async function handleCb(q, env) {
   if (data === "disc") return showDiscover(q, env, 0);
   if (data.startsWith("next:")) return showDiscover(q, env, parseInt(data.slice(5)));
 
-  // ─── v10: پنل ادمین با دکمه ───
   if (data === "adm_menu" && isAdmin(env, uid)) return handleAdmin(env, uid);
   if (data === "adm_users" && isAdmin(env, uid)) return handleAdminUsers(env, uid);
   if (data === "adm_cams" && isAdmin(env, uid)) return handleAdminChannels(env, uid);
@@ -282,13 +295,17 @@ async function handleCb(q, env) {
     await db.prepare("UPDATE channels SET status='active' WHERE id=?").bind(id).run();
     return handleAdminChannels(env, uid);
   }
+  // v11: refund اسکرو هنگام حذف کمپین
   if (data.startsWith("adm_remove:") && isAdmin(env, uid)) {
     const id = parseInt(data.slice(11));
+    await refundEscrow(env, db, id, "حذف توسط ادمین");
     await db.prepare("UPDATE channels SET status='removed' WHERE id=?").bind(id).run();
     return handleAdminChannels(env, uid);
   }
+  // v11: جلوگیری از بن خود ادمین
   if (data.startsWith("adm_ban:") && isAdmin(env, uid)) {
     const tuid = data.slice(8);
+    if (tuid === String(uid)) return sendMsg(env, uid, "⛔ نمی‌توانی خودت را مسدود کنی!");
     await db.prepare("INSERT INTO reports (reporter_id,target_kind,target_id,reason) VALUES (?,?,?,?)").bind(uid, "ban", tuid, "مسدود توسط ادمین").run();
     return sendMsg(env, uid, `⛔ کاربر <code>${tuid}</code> مسدود شد.`);
   }
@@ -391,7 +408,7 @@ async function handleCb(q, env) {
     return;
   }
 
-  if (data === "stake_start") { await setState(db, uid, "STAKE_AMOUNT"); return edit("🔒 چند سکه قفل کنی؟ (حداقل ۱۰)\nفقط عدد بفرست:"); }
+  if (data === "stake_start") { await setState(db, uid, "STAKE_AMOUNT"); return edit("🔒 چند سکه قفل کنی؟ (حداقل ۱۰)\nسود روزانه ۰.۵٪ + بلیت قرعه‌کشی\nفقط عدد بفرست:"); }
   if (data.startsWith("stake_period:")) {
     const days = parseInt(data.split(":")[1]);
     const st = await getState(db, uid); if (!st) return;
@@ -404,7 +421,7 @@ async function handleCb(q, env) {
     for (let i = 0; i < tickets; i++) await db.prepare("INSERT INTO lottery_tickets (user_id,source) VALUES (?,'stake')").bind(uid).run();
     await logTx(db, uid, "STAKE_LOCK", -d.amount, (await db.prepare("SELECT balance FROM users WHERE user_id=?").bind(uid).first()).balance);
     await clearState(db, uid);
-    return edit(`🔒 <b>${faNum(d.amount)} سکه</b> به مدت ${faNum(days)} روز قفل شد.\n🎰 +${faNum(tickets)} بلیت قرعه‌کشی\n💵 سود روزانه ۲٪ هنگام آزادسازی\n🗓 آزادسازی: ${faDate(unlock)} ساعت ${faTime(unlock)}`);
+    return edit(`🔒 <b>${faNum(d.amount)} سکه</b> به مدت ${faNum(days)} روز قفل شد.\n🎰 +${faNum(tickets)} بلیت قرعه‌کشی\n💵 سود روزانه ۰.۵٪ هنگام آزادسازی\n🗓 آزادسازی: ${faDate(unlock)} ساعت ${faTime(unlock)}`);
   }
   if (data === "stake_unlock") {
     const rows = (await db.prepare("SELECT * FROM stakes WHERE user_id=? AND status='active'").bind(uid).all()).results;
@@ -412,7 +429,8 @@ async function handleCb(q, env) {
     for (const s of rows) {
       if (new Date(s.unlock_at).getTime() <= now) {
         const days = Math.floor((now - new Date(s.start_at).getTime()) / 86400000);
-        const yieldC = await mintFromBudget(db, uid, Math.floor(s.amount * 0.02 * days));
+        // v11: تعدیل سود استیک از 2% به 0.5%
+        const yieldC = await mintFromBudget(db, uid, Math.floor(s.amount * STAKE_DAILY_RATE * days));
         await db.prepare("UPDATE users SET staked=staked-? WHERE user_id=?").bind(s.amount, uid).run();
         await db.prepare("UPDATE economy_state SET total_locked=total_locked-? WHERE id=1").bind(s.amount).run();
         await db.prepare("UPDATE stakes SET status='unlocked' WHERE id=?").bind(s.id).run();
@@ -463,25 +481,31 @@ async function handleCb(q, env) {
   }
 
   if (data === "support_start") { await setState(db, uid, "SUPPORT_MSG"); return edit("📨 پیام خود را کامل بنویس:"); }
+  // v11: بلاک اکسپلویت claim_club (یک‌بارمصرف)
   if (data === "claim_club") {
+    const got = await db.prepare("SELECT 1 x FROM transactions WHERE user_id=? AND type='MISSION_CLUB'").bind(uid).first();
+    if (got) return edit("✅ قبلاً این مأموریت را دریافت کرده‌ای.\nاین مأموریت یک‌بارمصرف است.");
     const res = await bale(env, "getChatMember", { chat_id: env.CLUB_CHANNEL, user_id: uid });
     if (!["member", "creator", "administrator"].includes(res.result?.status)) return edit("❌ هنوز عضو کانال مرکزی نشده‌ای!");
     const ok = await mintFromBudget(db, uid, 5);
     if (ok) await logTx(db, uid, "MISSION_CLUB", 5, (await db.prepare("SELECT balance FROM users WHERE user_id=?").bind(uid).first()).balance);
-    return edit(ok ? "🎉 + سکه" : " بودجه مأموریت خالی است.");
+    return edit(ok ? "🎉 +۵ سکه (یک‌بار برای هر کاربر)" : " بودجه مأموریت خالی است.");
   }
   if (data === "stats") {
     const e = await getEconomy(db);
     return edit(`📊 <b>اقتصاد کشف</b>\n💰 پشتوانه: ${faNum(Math.round(e.pool_value))} ت\n🪙 ضرب: ${faNum(e.total_minted)} | 🔥 سوخت: ${faNum(e.total_burned)}\n🔒 قفل: ${faNum(e.total_locked)}\n💎 قیمت لحظه‌ای: <b>${faNum(Math.round(currentPrice(e)))}</b> تومان`);
   }
 
+  // v11: بلاک تسک تکراری assigned
   if (data.startsWith("mission:")) {
     const chId = parseInt(data.slice(8));
     const ch = await db.prepare("SELECT * FROM channels WHERE id=?").bind(chId).first();
     if (!ch || ch.budget_coins < REWARD_COINS) return edit("⚠️ بودجه کمپین تمام شده.");
     const m = await db.prepare("SELECT status FROM memberships WHERE user_id=? AND channel_id=?").bind(uid, chId).first();
-    if (m && m.status === "joined") return edit("⏳ تو قبلاً در این کانال عضو شدی و در انتظار تأیید ۴۸ ساعته‌ای.\nبا «بعدی» تسک جدید بگیر.");
+    if (m && m.status === "assigned") return edit("🔘 قبلاً این تسک را شروع کرده‌ای.\nبعد از عضویت، دکمه «✅ عضو شدم» را بزن.\nاگر منصرف شدی، «⏭ بعدی» را بزن.");
+    if (m && m.status === "joined") return edit("⏳ قبلاً عضو شدی و در انتظار تأیید ۴۸ ساعته‌ای.\nبا «بعدی» تسک جدید بگیر.");
     if (m && m.status === "rewarded") return edit("✅ قبلاً پاداش این کانال را گرفته‌ای.\nبا «بعدی» تسک جدید بگیر.");
+    if (m && m.status === "penalized") return edit("⛔ قبلاً به دلیل خروج زودهنگام از این کانال جریمه شدی.\nبا «بعدی» تسک جدید بگیر.");
     const r = await db.prepare("INSERT INTO memberships (user_id,channel_id,status) VALUES (?,?,'assigned')").bind(uid, chId).run();
     return edit(`📢 عضو شو: <b>@${ch.username}</b>`, { inline_keyboard: [[{ text: "✅ عضو شدم", callback_data: "joined:" + r.meta.last_row_id }, { text: "🚩 گزارش", callback_data: "report:" + chId }]] });
   }
@@ -498,7 +522,6 @@ async function handleCb(q, env) {
   }
 }
 
-// ─── v10.1: موتور تطبیق + چرخش همه کانال‌ها ───
 async function showDiscover(q, env, idx) {
   const db = env.DB, uid = q.from.id;
   const u = await db.prepare("SELECT * FROM users WHERE user_id=?").bind(uid).first();
@@ -508,7 +531,6 @@ async function showDiscover(q, env, idx) {
     return bale(env, "editMessageText", { chat_id: q.message.chat.id, message_id: q.message.message_id,
       text: "😴 هیچ کمپین فعالی در سیستم کشف نیست.\nبه‌زودی کمپین‌های جدید اضافه می‌شوند.", parse_mode: "HTML" });
 
-  // امتیازدهی: کانال‌های هم‌تگ اول، بقیه به‌عنوان پیشنهاد عمومی
   const scored = allActive.map(c => ({ c, hit: JSON.parse(c.niches || "[]").filter(t => my.includes(t)).length }));
   const list = [
     ...scored.filter(x => x.hit > 0).sort((a, b) => b.hit - a.hit),
@@ -543,7 +565,6 @@ async function handlePayment(u, env) {
   await sendMsg(env, u.message.from.id, `💎 خرید موفق!\n🪙 +<b>${faNum(coins)}</b> سکه\n💰 پشتوانه اقتصاد رشد کرد 📈`, MAIN_KB);
 }
 
-// ─── v10: توابع پنل ادمین ───
 async function handleAdmin(env, uid) {
   const db = env.DB;
   const users = await db.prepare("SELECT COUNT(*) c FROM users").first();
@@ -557,7 +578,7 @@ async function handleAdmin(env, uid) {
   const todayUsers = await db.prepare("SELECT COUNT(*) c FROM users WHERE DATE(created_at)=?").bind(today).first();
   const e = await getEconomy(db);
   return sendMsg(env, uid,
-    `🛡 <b>پنل ادمین کشف</b>\n📅 ${faDate(new Date().toISOString())} — ${faTime(new Date().toISOString())}\n\n👥 <b>کاربران</b>\nکل: <b>${faNum(users.c)}</b> | امروز: <b>${faNum(todayUsers.c)}</b> | مسدود: <b>${faNum(banned.c)}</b>\n\n📢 <b>کمپین‌ها</b>\n🟢 فعال: <b>${faNum(activeCh.c)}</b> | 🟡 متوقف: <b>${faNum(pausedCh.c)}</b> | 🔴 حذف: <b>${faNum(removedCh.c)}</b>\n\n💰 <b>اقتصاد</b>\nتراکنش‌ها: <b>${faNum(txs.c)}</b>\nپشتوانه: <b>${faNum(Math.round(e.pool_value))}</b> تومان\nقیمت لحظه‌ای: <b>${faNum(Math.round(currentPrice(e)))}</b> تومان\n\n🚩 گزارش‌های باز: <b>${faNum(openReports.c)}</b>`,
+    `🛡 <b>پنل ادمین کشف</b>\n📅 ${faDate(new Date().toISOString())} — ${faTime(new Date().toISOString())}\n\n👥 <b>کاربران</b>\nکل: <b>${faNum(users.c)}</b> | امروز: <b>${faNum(todayUsers.c)}</b> | مسدود: <b>${faNum(banned.c)}</b>\n\n📢 <b>کمپین‌ها</b>\n🟢 فعال: <b>${faNum(activeCh.c)}</b> | 🟡 متوقف: <b>${faNum(pausedCh.c)}</b> | 🔴 حذف: <b>${faNum(removedCh.c)}</b>\n\n💰 <b>اقتصاد</b>\nتراکنش‌ها: <b>${faNum(txs.c)}</b>\nپشتوانه: <b>${faNum(Math.round(e.pool_value))}</b> تومان\nبودجه پاداش: <b>${faNum(Math.round(e.reward_budget))}</b> تومان\nقیمت لحظه‌ای: <b>${faNum(Math.round(currentPrice(e)))}</b> تومان\n\n🚩 گزارش‌های باز: <b>${faNum(openReports.c)}</b>`,
     { inline_keyboard: [
       [{ text: "👥 کاربران", callback_data: "adm_users" }, { text: "📢 کمپین‌ها", callback_data: "adm_cams" }],
       [{ text: "💳 تراکنش‌ها", callback_data: "adm_txs" }, { text: "🚩 گزارش‌ها", callback_data: "adm_rpts" }],
@@ -569,7 +590,9 @@ async function handleAdminUsers(env, uid) {
   const rows = (await db.prepare("SELECT * FROM users ORDER BY created_at DESC LIMIT 15").all()).results;
   if (!rows.length) return sendMsg(env, uid, "هیچ کاربری نیست.");
   const list = rows.map((u, i) => `${faNum(i + 1)}. <b>${u.first_name || "—"}</b> ${u.username ? "@" + u.username : ""}\n🆔 <code>${u.user_id}</code> | 🪙 ${faNum(u.balance)} | 🛡 ${faNum(u.trust_score)}/100\n📅 ${faDate(u.created_at)} | 🎫 تسک: ${faNum(u.total_tasks)}`).join("\n──────────\n");
-  const kb = { inline_keyboard: rows.map(u => [{ text: `⛔ مسدود: ${u.first_name || u.user_id}`, callback_data: "adm_ban:" + u.user_id }]).concat([[{ text: "🔙 بازگشت", callback_data: "adm_menu" }]]) };
+  // v11: فیلتر ادمین از لیست مسدودسازی
+  const ownerId = parseInt(env.OWNER_ID || "0");
+  const kb = { inline_keyboard: rows.filter(u => u.user_id !== ownerId).map(u => [{ text: `⛔ مسدود: ${u.first_name || u.user_id}`, callback_data: "adm_ban:" + u.user_id }]).concat([[{ text: "🔙 بازگشت", callback_data: "adm_menu" }]]) };
   return sendMsg(env, uid, `👥 <b>۱۵ کاربر آخر</b>\n\n${list}`, kb);
 }
 
@@ -614,12 +637,20 @@ async function handleAdminEconomy(env, uid) {
   const escrow = await db.prepare("SELECT COALESCE(SUM(budget_coins),0) s FROM channels WHERE status='active'").first();
   const staked = await db.prepare("SELECT COALESCE(SUM(amount),0) s FROM stakes WHERE status='active'").first();
   return sendMsg(env, uid,
-    `💰 <b>گزارش اقتصاد</b>\n\n💵 پشتوانه: <b>${faNum(Math.round(e.pool_value))}</b> ت\n💼 کارمزد هفتگی: <b>${faNum(Math.round(e.weekly_commission))}</b> ت\n\n🪙 <b>عرضه</b>\nضرب‌شده: ${faNum(e.total_minted)}\nسوخته: ${faNum(e.total_burned)}\nقفل: ${faNum(e.total_locked)}\nدر گردش: <b>${faNum(circ)}</b>\n\n📊 <b>قفل‌شده در</b>\nاسکرو کمپین‌ها: ${faNum(escrow.s)}\nاستیک کاربران: ${faNum(staked.s)}\n\n💎 خریدها: ${faNum(payments.c)} | سکه: ${faNum(payments.s)}\n💎 قیمت لحظه‌ای: <b>${faNum(Math.round(currentPrice(e)))}</b> تومان`,
+    `💰 <b>گزارش اقتصاد</b>\n\n💵 پشتوانه: <b>${faNum(Math.round(e.pool_value))}</b> ت\n💼 کارمزد هفتگی: <b>${faNum(Math.round(e.weekly_commission))}</b> ت\n💾 بودجه پاداش: <b>${faNum(Math.round(e.reward_budget))}</b> ت\n\n🪙 <b>عرضه</b>\nضرب‌شده: ${faNum(e.total_minted)}\nسوخته: ${faNum(e.total_burned)}\nقفل: ${faNum(e.total_locked)}\nدر گردش: <b>${faNum(circ)}</b>\n\n📊 <b>قفل‌شده در</b>\nاسکرو کمپین‌ها: ${faNum(escrow.s)}\nاستیک کاربران: ${faNum(staked.s)}\n\n💎 خریدها: ${faNum(payments.c)} | سکه: ${faNum(payments.s)}\n💎 قیمت لحظه‌ای: <b>${faNum(Math.round(currentPrice(e)))}</b> تومان`,
     { inline_keyboard: [[{ text: "🔙 بازگشت", callback_data: "adm_menu" }]] });
 }
 
 async function runCron(env) {
   const db = env.DB, now = new Date().toISOString();
+  
+  // v11: شارژ روزانه reward_budget از weekly_commission (10% روزانه)
+  const e = await getEconomy(db);
+  const refuel = Math.floor(e.weekly_commission * 0.1);
+  if (refuel > 0) {
+    await db.prepare("UPDATE economy_state SET reward_budget=reward_budget+?, weekly_commission=weekly_commission-? WHERE id=1").bind(refuel, refuel).run();
+  }
+
   const due = (await db.prepare("SELECT * FROM memberships WHERE status='joined' AND check_at<=?").bind(now).all()).results;
   for (const m of due) {
     const ch = await db.prepare("SELECT * FROM channels WHERE id=?").bind(m.channel_id).first();
@@ -644,7 +675,13 @@ async function runCron(env) {
     if (!(adm.result || []).some(a => a.user?.id === me.result?.id)) {
       const v = ch.violations + 1, status = v >= 3 ? "removed" : "paused";
       await db.prepare("UPDATE channels SET violations=?, status=?, bot_is_admin=0 WHERE id=?").bind(v, status, ch.id).run();
-      if (ch.owner_id) await bale(env, "sendMessage", { chat_id: ch.owner_id, text: v >= 3 ? "❌ کمپین برای همیشه حذف شد." : "⚠️ ربات دیگر ادمین نیست! کمپین متوقف شد." });
+      // v11: refund اسکرو هنگام حذف دائم
+      if (v >= 3) {
+        await refundEscrow(env, db, ch.id, "حذف دائم (۳ اخطار ادمین)");
+        if (ch.owner_id) await bale(env, "sendMessage", { chat_id: ch.owner_id, text: "❌ کمپین برای همیشه حذف شد (ربات دیگر ادمین نبود). باقی‌مانده سکه‌ها برگشت داده شد." });
+      } else {
+        if (ch.owner_id) await bale(env, "sendMessage", { chat_id: ch.owner_id, text: "⚠️ ربات دیگر ادمین نیست! کمپین متوقف شد. ربات را دوباره ادمین کن." });
+      }
     }
   }
 }
@@ -657,7 +694,7 @@ export default {
       ctx.waitUntil(route(update, env));
       return new Response("ok");
     }
-    if (url.pathname === "/health") return new Response("🌱 KashfBot v10 alive");
+    if (url.pathname === "/health") return new Response("🌱 KashfBot v11 alive");
     return new Response("Not Found", { status: 404 });
   },
   async scheduled(_e, env, ctx) { ctx.waitUntil(runCron(env)); },
