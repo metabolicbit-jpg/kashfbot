@@ -16,11 +16,11 @@ jobs:
         with:
           node-version: "20"
 
-      - name: Syntax check (ESM)
+      - name: Syntax check (ESM-safe)
         run: |
           set +e
           cp index.js /tmp/check.mjs
-          node -e "import('file:///tmp/check.mjs').then(()=>process.exit(0)).catch(e=>{console.error(e.message);process.exit(1);})" > check.log 2>&1
+          node -e "import('file:///tmp/check.mjs').then(()=>{console.log('OK');process.exit(0)}).catch(e=>{console.error(e.message);process.exit(1)})" > check.log 2>&1
           code=$?
           if [ $code -ne 0 ]; then
             echo "### ❌ خطای سینتکس در index.js" >> $GITHUB_STEP_SUMMARY
@@ -29,7 +29,7 @@ jobs:
             echo '```' >> $GITHUB_STEP_SUMMARY
             exit 1
           fi
-          echo "### ✅ سینتکس سالم" >> $GITHUB_STEP_SUMMARY
+          echo "### ✅ سینتکس سالم (ESM)" >> $GITHUB_STEP_SUMMARY
 
       - name: Completeness check
         run: |
