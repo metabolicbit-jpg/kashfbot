@@ -186,6 +186,7 @@ if(tier.quiz&&ch.quiz_question){const opts=JSON.parse(ch.quiz_options||"[]");awa
 if(tier.forward){await sendMsg(env,uid,`📤 تسک فوروارد (+${faNum(tier.forward)} سکه)\n\n۱) کانال @${ch.username} را باز کن\n۲) یکی از پست‌ها را انتخاب کن\n۳) همان پست را به همین بات فوروارد کن`,{inline_keyboard:[[{text:"📢 باز کردن کانال",url:`https://ble.ir/${ch.username}`}]]});}
 return edit(`✅ عضویت ثبت شد!\n⏳ تأیید ماندگاری تا ${faDate(check)}\n\n🎁 تسک‌های پاداش کامل به پیوی‌ات آمد: کوییز + فوروارد.`);}
 }
+
 async function showDiscover(q,env,idx){const db=env.DB,uid=q.from.id;const u=await db.prepare("SELECT * FROM users WHERE user_id=?").bind(uid).first();const my=JSON.parse(u.interests||"[]");const all=(await db.prepare("SELECT * FROM channels WHERE status='active' AND bot_is_admin=1 AND owner_id!=?").bind(uid).all()).results;if(!all.length)return bale(env,"editMessageText",{chat_id:q.message.chat.id,message_id:q.message.message_id,text:"😴 کمپین فعالی نیست.",parse_mode:"HTML"});
 const scored=scored0(all,my);const list=scored;
 const pos=((idx%list.length)+list.length)%list.length;const{c:ch,hit}=list[pos];const isMatch=hit>0;const overlap=Math.round(hit/Math.max(my.length,1)*100);const g=await channelGrade(db,ch.id);const tier=TIERS[ch.tier]||TIERS.standard;
