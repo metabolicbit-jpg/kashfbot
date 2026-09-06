@@ -16,6 +16,20 @@ jobs:
         with:
           node-version: "20"
 
+      - name: Syntax check
+        run: |
+          set +e
+          node --check index.js 2> err.log
+          code=$?
+          if [ $code -ne 0 ]; then
+            echo "### ❌ خطای سینتکس در index.js" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            cat err.log >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
+          echo "### ✅ سینتکس سالم" >> $GITHUB_STEP_SUMMARY
+
       - name: Install Wrangler
         run: npm install -g wrangler@3
 
@@ -31,7 +45,6 @@ jobs:
           echo '```' >> $GITHUB_STEP_SUMMARY
           cat deploy.log >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-          cat deploy.log
           exit $code
 
       - name: Sync Secrets
