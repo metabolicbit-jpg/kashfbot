@@ -20,12 +20,12 @@ jobs:
         run: |
           set +e
           cp index.js /tmp/check.mjs
-          node --check /tmp/check.mjs 2> err.log
+          node -e "import('file:///tmp/check.mjs').then(()=>process.exit(0)).catch(e=>{console.error(e.message);process.exit(1);})" > check.log 2>&1
           code=$?
           if [ $code -ne 0 ]; then
             echo "### ❌ خطای سینتکس در index.js" >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
-            cat err.log >> $GITHUB_STEP_SUMMARY
+            cat check.log >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
             exit 1
           fi
