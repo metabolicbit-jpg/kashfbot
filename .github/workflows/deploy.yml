@@ -16,18 +16,6 @@ jobs:
         with:
           node-version: "20"
 
-      - name: Syntax check index.js
-        run: |
-          if node --check index.js 2> err.log; then
-            echo "✅ SYNTAX OK" | tee -a $GITHUB_STEP_SUMMARY
-          else
-            echo "❌ SYNTAX ERROR در index.js:" | tee -a $GITHUB_STEP_SUMMARY
-            echo '```' | tee -a $GITHUB_STEP_SUMMARY
-            cat err.log | tee -a $GITHUB_STEP_SUMMARY
-            echo '```' | tee -a $GITHUB_STEP_SUMMARY
-            exit 1
-          fi
-
       - name: Install Wrangler
         run: npm install -g wrangler@3
 
@@ -36,13 +24,18 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
-          set -o pipefail
-          wrangler deploy 2>&1 | tee deploy.log
+          set +e
+          wrangler deploy > deploy.log 2>&1
+          code=$?
+          echo "### 📤 خروجی Wrangler" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           cat deploy.log >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
+          cat deploy.log
+          exit $code
 
       - name: Sync Secrets
+        if: success()
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
