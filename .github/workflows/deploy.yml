@@ -30,6 +30,18 @@ jobs:
           fi
           echo "### ✅ سینتکس سالم" >> $GITHUB_STEP_SUMMARY
 
+      - name: Completeness check
+        run: |
+          miss=""
+          for fn in handleStart handleMenu handleStateText handleCb handleAdmin handleAdminUsers handleAdminChannels handleAdminMissions handleAdminEngage handleAdminTxs handleAdminReports handleAdminEconomy handleAdminQuota showDiscover handleForward handlePayment ctx_broadcast seedMissions missionsHandler submitReport runCron route; do
+            if ! grep -q "function $fn(" index.js; then miss="$miss $fn"; fi
+          done
+          if [ -n "$miss" ]; then
+            echo "### ❌ توابع جاافتاده در پیست:$miss" >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
+          echo "### ✅ همهٔ توابع حاضرند" >> $GITHUB_STEP_SUMMARY
+
       - name: Install Wrangler
         run: npm install -g wrangler@3
 
