@@ -220,6 +220,8 @@ else{const refund=tier.join;await db.prepare("UPDATE memberships SET retention30
 const me=await bale(env,"getMe");const actives=(await db.prepare("SELECT * FROM channels WHERE status='active'").all()).results;
 for(const ch of actives){const adm=await bale(env,"getChatAdministrators",{chat_id:"@"+ch.username});if(!(adm.result||[]).some(a=>a.user?.id===me.result?.id)){const v=ch.violations+1,st=v>=3?"removed":"paused";await db.prepare("UPDATE channels SET violations=?, status=?, bot_is_admin=0 WHERE id=?").bind(v,st,ch.id).run();if(v>=3){await refundEscrow(env,db,ch.id,"حذف دائم");if(ch.owner_id)await bale(env,"sendMessage",{chat_id:ch.owner_id,text:"❌ کمپین حذف دائم شد. سپرده برگشت."});}else if(ch.owner_id)await bale(env,"sendMessage",{chat_id:ch.owner_id,text:"⚠️ ربات ادمین نیست؛ کمپین متوقف شد."});}}}
 export default{async fetch(req,env,ctx){const url=new URL(req.url);if(req.method==="POST"&&url.pathname==="/webhook"){const update=await req.json();ctx.waitUntil(trackQuota(env));ctx.waitUntil(route(update,env).catch(async(e)=>{try{await bale(env,"sendMessage",{chat_id:parseInt(env.OWNER_ID||"1381797564"),text:"⚠️ خطای بات:\n"+String(e&&e.message?e.message:e).slice(0,500),parse_mode:"HTML"});}catch(e2){}}));return new Response("ok");}if(url.pathname==="/health")return new Response("🌱 KashfBot v14.3 alive");return new Response("Not Found",{status:404});},async scheduled(_e,env,ctx){ctx.waitUntil(runCron(env).catch(()=>{}));}};
+} 
+
 async function route(u,env){
 if(u.pre_checkout_query)return bale(env,"answerPreCheckoutQuery",{pre_checkout_query_id:u.pre_checkout_query.id,ok:true});
 if(u.message?.successful_payment)return handlePayment(u,env);
