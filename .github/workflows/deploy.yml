@@ -11,16 +11,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Show lines 280-305 of index.js
-        run: |
-          echo "### 🔍 Lines 280-305 of index.js" >> $GITHUB_STEP_SUMMARY
-          echo '```js' >> $GITHUB_STEP_SUMMARY
-          sed -n '280,305p' index.js >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 📏 Total lines" >> $GITHUB_STEP_SUMMARY
-          wc -l index.js >> $GITHUB_STEP_SUMMARY
-
       - name: Setup Node 20
         uses: actions/setup-node@v4
         with:
@@ -37,10 +27,11 @@ jobs:
           set +e
           wrangler deploy > deploy.log 2>&1
           code=$?
-          echo "### 📤 Wrangler output" >> $GITHUB_STEP_SUMMARY
+          echo "### 📤 خروجی Wrangler" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           cat deploy.log >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
+          cat deploy.log
           exit $code
 
       - name: Sync Secrets
