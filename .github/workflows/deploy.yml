@@ -16,10 +16,11 @@ jobs:
         with:
           node-version: "20"
 
-      - name: Syntax check
+      - name: Syntax check (ESM)
         run: |
           set +e
-          node --check index.js 2> err.log
+          cp index.js /tmp/check.mjs
+          node --check /tmp/check.mjs 2> err.log
           code=$?
           if [ $code -ne 0 ]; then
             echo "### ❌ خطای سینتکس در index.js" >> $GITHUB_STEP_SUMMARY
