@@ -11,6 +11,26 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Syntax check (ESM)
+        run: |
+          set +e
+          cp index.js /tmp/check.mjs
+          node --input-type=module -e "await import('file:///tmp/check.mjs');" > check.log 2>&1
+          code=$?
+          if [ $code -ne 0 ]; then
+            echo "### ❌ خطای سینتکس در index.js" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            cat check.log >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
+          echo "### ✅ سینتکس سالم (ESM)" >> $GITHUB_STEP_SUMMARY
+
       - name: Completeness check
         run: |
           miss=""
