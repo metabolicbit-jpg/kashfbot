@@ -440,4 +440,4 @@ async function handlePayment(u,env){
 }
 
 async function handleAdmin(env,uid){
-  return sendMsg(env,uid,"⚙️ پنل مدیریت",
+  return sendMsg(env,uid,"⚙️ پنل مدیریت");
