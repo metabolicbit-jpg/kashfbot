@@ -377,7 +377,38 @@ async function handleAdminMissions(env,uid){const db=env.DB;await seedMissions(d
 async function handleAdminEngage(env,uid){const db=env.DB;const rows=(await db.prepare("SELECT * FROM channels ORDER BY id DESC LIMIT 10").all()).results;const list=[];for(const ch of rows){const s=await db.prepare("SELECT COUNT(*) c, SUM(forward_verified) f, SUM(quiz_correct) q, AVG(quality_score) a FROM memberships WHERE channel_id=? AND status='rewarded'").bind(ch.id).first();const g=await channelGrade(db,ch.id);list.push(`🏆${g.g} ${ch.title}\n👥${faNum(s.c)} | 📤فوروارد ${faNum(s.f||0)} | ❓کوییز ${faNum(s.q||0)}\n📈 QS میانگین: ${faNum(Math.round(s.a||0))}`);}return sendMsg(env,uid,`📈 کیفیت کمپین‌ها\n\n${list.join("\n──────────\n")||"داده‌ای نیست"}`,{inline_keyboard:[[{text:"🔙 بازگشت",callback_data:"adm_menu"}]]});}
 async function handleAdminTxs(env,uid){const db=env.DB;const rows=(await db.prepare("SELECT * FROM transactions ORDER BY id DESC LIMIT 20").all()).results;return sendMsg(env,uid,`💳 ۲۰ تراکنش آخر\n\n${rows.map(t=>`#${faNum(t.id)} ${t.type} ${t.user_id}\n${faNum(t.amount)}→${faNum(t.balance_after)}`).join("\n──────────\n")}`,{inline_keyboard:[[{text:"🔙 بازگشت",callback_data:"adm_menu"}]]});}
 async function handleAdminReports(env,uid){const db=env.DB;const rows=(await db.prepare("SELECT * FROM reports WHERE target_kind!='ban' ORDER BY id DESC LIMIT 15").all()).results;if(!rows.length)return sendMsg(env,uid,"✅ گزارشی نیست.",{inline_keyboard:[[{text:"🔙 بازگشت",callback_data:"adm_menu"}]]});const catIcon=c=>c==="technical"?"⚙️":"⚠️";return sendMsg(env,uid,`🚩 گزارش‌ها\n✅ حل | ⏸ توقف | ❌ حذف\n\n${rows.map(r=>`${catIcon(r.category||"content")}#${faNum(r.id)} ${r.target_kind}#${r.target_id}\n👤${r.reporter_id} 📝${r.reason}\n📅${faDate(r.created_at)}`).join("\n──────────\n")}`,{inline_keyboard:rows.filter(r=>r.status==="open").map(r=>[{text:`✅ حل #${r.id}`,callback_data:"adm_resolve:"+r.id},{text:`⏸ #${r.id}`,callback_data:"adm_rpause:"+r.id},{text:`❌ #${r.id}`,callback_data:"adm_rremove:"+r.id}]).concat([[{text:"🔙 بازگشت",callback_data:"adm_menu"}]])});}
-async function handleAdminEconomy(env,uid){const db=env.DB;const e=await getEconomy(db);const esc=await db.prepare("SELECT COALESCE(SUM(budget_coins),0) s FROM channels WHERE status='active'").first();const stk=await db.prepare("SELECT COALESCE(SUM(amount),0) s FROM stakes WHERE status='active'").first();return sendMsg(env,uid,`💰 پشتوانه ${faNum(Math.round(e.pool_value))} | کارمزد ${faNum(Math.round(e.weekly_commission))} | بودجه پاداش ${faNum(Math.round(e.reward_budget))}\nضرب ${faNum(e.total_minted)} سوخت ${faNum(e.total_burned)} قفل ${faNum(e.total_locked)} گردش ${faNum(circulating(e))}\nسپرده ${faNum(esc.s)} استیک ${faNum(stk.s)}\n💎 ${faNum(Math.round(currentPrice(e)))} ت`,{inline_keyboard:[[{text:"🔙 بازگشت",callback_data:"adm_menu"}]]});}
+async function handleAdminEconomy(env,uid){
+  const db=env.DB;
+  const e=await getEconomy(db);
+  const esc=await db.prepare("SELECT COALESCE(SUM(budget_coins),0) s FROM channels WHERE status='active'").first();
+  const stk=await db.prepare("SELECT COALESCE(SUM(amount),0) s FROM stakes WHERE status='active'").first();
+  const price = Math.round(currentPrice(e));
+
+  const msg = 
+`📊 <b>گزارش اقتصادی کشف</b>
+
+💎 <b>قیمت لحظه‌ای:</b> ${faNum(price)} تومان
+
+━━━━━━━━━━━━━━━
+💰 <b>وضعیت پشتوانه</b>
+• پشتوانه (Pool): ${faNum(Math.round(e.pool_value))} ت
+• کارمزد مالک: ${faNum(Math.round(e.weekly_commission))} ت
+• بودجه پاداش: ${faNum(Math.round(e.reward_budget))} ت
+
+━━━━━━━━━━━━━━━
+🪙 <b>عرضه و تقاضا</b>
+• ضرب‌شده: ${faNum(e.total_minted)} سکه
+• سوخته‌شده (Burn): ${faNum(e.total_burned)} سکه 🔥
+• قفل‌شده: ${faNum(e.total_locked)} سکه
+• در گردش: ${faNum(circulating(e))} سکه
+
+━━━━━━━━━━━━━━━
+🔒 <b>سرمایه‌گذاری فعال</b>
+• سپرده کمپین‌ها: ${faNum(esc.s)} سکه
+• استیک کاربران: ${faNum(stk.s)} سکه`;
+
+  return sendMsg(env,uid,msg,{inline_keyboard:[[{text:"🔙 بازگشت",callback_data:"adm_menu"}]]});
+}
 async function handleAdminQuota(env,uid){const db=env.DB;const date=new Date().toISOString().slice(0,10);const q=await db.prepare("SELECT requests FROM quota WHERE date=?").bind(date).first();const req=q?.requests||0;const tables=["users","channels","memberships","transactions","reports","stakes","lottery_tickets","missions","mission_claims"];const counts={};let total=0;for(const t of tables){const r=await db.prepare(`SELECT COUNT(*) c FROM ${t}`).first();counts[t]=r.c;total+=r.c;}return sendMsg(env,uid,`📊 گزارش مصرف و سهمیه\n📅 ${faDate(new Date().toISOString())}\n\n🌐 درخواست امروز: ${faNum(req)} / ${faNum(REQ_LIMIT)}\n✅ مانده: ${faNum(Math.max(REQ_LIMIT-req,0))}\n\n🗄 حجم دیتابیس: ${faNum(total)} رکورد\n💾 ظرفیت D1 رایگان: ۵ گیگابایت`,{inline_keyboard:[[{text:"🔙 بازگشت",callback_data:"adm_menu"}]]});}
 
 async function ctx_broadcast(env,db,text,senderId){const users=(await db.prepare("SELECT user_id FROM users").all()).results;const total=users.length;let ok=0,fail=0;for(const u of users){if(u.user_id===senderId)continue;if(await isBanned(db,u.user_id))continue;try{await bale(env,"sendMessage",{chat_id:u.user_id,text,parse_mode:"HTML"});ok++;}catch(e){fail++;}if((ok+fail)%50===0)await new Promise(r=>setTimeout(r,1000)); await new Promise(r=>setTimeout(r,1000));}await notifyOwner(env,`📤 گزارش ارسال همگانی\n👥 کل: ${faNum(total)}\n✅ موفق: ${faNum(ok)}\n❌ خطا: ${faNum(fail)}`);}
