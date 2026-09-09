@@ -483,9 +483,21 @@ for(const m of wakeupUsers){
     await new Promise(r=>setTimeout(r,1000));
 }
 
-// رفع آدمین از کانال‌ها
+// رفع آدمین از کانال‌ها (با محافظت در برابر خطای موقت API)
 const me=await bale(env,"getMe");const actives=(await db.prepare("SELECT * FROM channels WHERE status='active'").all()).results;
-for(const ch of actives){const adm=await bale(env,"getChatAdministrators",{chat_id:"@"+ch.username});if(!(adm.result||[]).some(a=>a.user?.id===me.result?.id)){const v=ch.violations+1,st=v>=3?"removed":"paused";await db.prepare("UPDATE channels SET violations=?, status=?, bot_is_admin=0 WHERE id=?").bind(v,st,ch.id).run();if(v>=3){await refundEscrow(env,db,ch.id,"حذف دائم");if(ch.owner_id)await bale(env,"sendMessage",{chat_id:ch.owner_id,text:`❌ <b>حذف دائم!</b>\n\n📢 کمپین: ${ch.title || "بدون عنوان"} (${ch.username ? "@" + ch.username : "بدون یوزرنیم"})\n🆔 شناسه کمپین: #${ch.id}\n👤 سفارش‌دهنده: ${ch.owner_id}\n\nبه دلیل ۳ بار عدم حضور ربات به عنوان ادمین، کمپین حذف شد و سپرده به حساب شما برگشت.`,parse_mode:"HTML"});}else if(ch.owner_id)await bale(env,"sendMessage",{chat_id:ch.owner_id,text:`⚠️ <b>هشدار دسترسی!</b>\n\n📢 کمپین: ${ch.title || "بدون عنوان"} (${ch.username ? "@" + ch.username : "بدون یوزرنیم"})\n🆔 شناسه کمپین: #${ch.id}\n👤 سفارش‌دهنده: ${ch.owner_id}\n\nربات دیگر ادمین این کانال نیست؛ کمپین متوقف شد.\n🔗 برای رفع مشکل، ربات را دوباره ادمین کنید و سپس از پنل ادمین گزینه Resume را بزنید.`,parse_mode:"HTML"});}}}
+for(const ch of actives){
+    try {
+        const adm=await bale(env,"getChatAdministrators",{chat_id:"@"+ch.username});
+        if(!(adm.result||[]).some(a=>a.user?.id===me.result?.id)){
+            const v=ch.violations+1,st=v>=3?"removed":"paused";
+            await db.prepare("UPDATE channels SET violations=?, status=?, bot_is_admin=0 WHERE id=?").bind(v,st,ch.id).run();
+            if(v>=3){await refundEscrow(env,db,ch.id,"حذف دائم");if(ch.owner_id)await bale(env,"sendMessage",{chat_id:ch.owner_id,text:`❌ <b>حذف دائم!</b>\n\n📢 کمپین: ${ch.title || "بدون عنوان"} (${ch.username ? "@" + ch.username : "بدون یوزرنیم"})\n🆔 شناسه کمپین: #${ch.id}\n👤 سفارش‌دهنده: ${ch.owner_id}\n\nبه دلیل ۳ بار عدم حضور ربات به عنوان ادمین، کمپین حذف شد و سپرده به حساب شما برگشت.`,parse_mode:"HTML"});}else if(ch.owner_id)await bale(env,"sendMessage",{chat_id:ch.owner_id,text:`⚠️ <b>هشدار دسترسی!</b>\n\n📢 کمپین: ${ch.title || "بدون عنوان"} (${ch.username ? "@" + ch.username : "بدون یوزرنیم"})\n🆔 شناسه کمپین: #${ch.id}\n👤 سفارش‌دهنده: ${ch.owner_id}\n\nربات دیگر ادمین این کانال نیست؛ کمپین متوقف شد.\n🔗 برای رفع مشکل، ربات را دوباره ادمین کنید و سپس از پنل ادمین گزینه Resume را بزنید.`,parse_mode:"HTML"});}
+        }
+    } catch(e) {
+        // اگر API بله موقتاً خطا داد، کمپین را متوقف نکن
+        console.log("Error checking admin status for channel:", ch.id, e);
+    }
+}
 
 export default{async fetch(req,env,ctx){const url=new URL(req.url);if(req.method==="POST"&&url.pathname==="/webhook"){const update=await req.json();ctx.waitUntil(trackQuota(env));ctx.waitUntil(route(update,env).catch(async(e)=>{try{await bale(env,"sendMessage",{chat_id:parseInt(env.OWNER_ID||"1381797564"),text:"⚠️ خطای بات:\n"+String(e&&e.message?e.message:e).slice(0,500),parse_mode:"HTML"});}catch(e2){}}));return new Response("ok");}if(url.pathname==="/health")return new Response("🌱 KashfBot v14.7 alive");return new Response("Not Found",{status:404});},async scheduled(_e,env,ctx){ctx.waitUntil(runCron(env).catch(()=>{}));}};
 
