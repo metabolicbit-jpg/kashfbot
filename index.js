@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════
-// 🌱 KashfBot v14.7.1 — Golden Economy Build
+// 🌱 KashfBot v14.7 — Golden Economy Build
 // ═══════════════════════════════════════════
 const BOT_NAME = "کشف", CLUB_CHANNEL = "@KashfClub";
 const BOT_USERNAME = "kashfbot";
@@ -491,7 +491,12 @@ for(const ch of actives){
         if(!(adm.result||[]).some(a=>a.user?.id===me.result?.id)){
             const v=ch.violations+1,st=v>=3?"removed":"paused";
             await db.prepare("UPDATE channels SET violations=?, status=?, bot_is_admin=0 WHERE id=?").bind(v,st,ch.id).run();
-            if(v>=3){await refundEscrow(env,db,ch.id,"حذف دائم");if(ch.owner_id)await bale(env,"sendMessage",{chat_id:ch.owner_id,text:`❌ <b>حذف دائم!</b>\n\n📢 کمپین: ${ch.title || "بدون عنوان"} (${ch.username ? "@" + ch.username : "بدون یوزرنیم"})\n🆔 شناسه کمپین: #${ch.id}\n👤 سفارش‌دهنده: ${ch.owner_id}\n\nبه دلیل ۳ بار عدم حضور ربات به عنوان ادمین، کمپین حذف شد و سپرده به حساب شما برگشت.`,parse_mode:"HTML"});}else if(ch.owner_id)await bale(env,"sendMessage",{chat_id:ch.owner_id,text:`⚠️ <b>هشدار دسترسی!</b>\n\n📢 کمپین: ${ch.title || "بدون عنوان"} (${ch.username ? "@" + ch.username : "بدون یوزرنیم"})\n🆔 شناسه کمپین: #${ch.id}\n👤 سفارش‌دهنده: ${ch.owner_id}\n\nربات دیگر ادمین این کانال نیست؛ کمپین متوقف شد.\n🔗 برای رفع مشکل، ربات را دوباره ادمین کنید و سپس از پنل ادمین گزینه Resume را بزنید.`,parse_mode:"HTML"});}
+            if(v>=3){
+                await refundEscrow(env,db,ch.id,"حذف دائم");
+                if(ch.owner_id) await bale(env,"sendMessage",{chat_id:ch.owner_id,text:`❌ <b>حذف دائم!</b>\n\n📢 کمپین: ${ch.title || "بدون عنوان"} (${ch.username ? "@" + ch.username : "بدون یوزرنیم"})\n🆔 شناسه کمپین: #${ch.id}\n👤 سفارش‌دهنده: ${ch.owner_id}\n\nبه دلیل ۳ بار عدم حضور ربات به عنوان ادمین، کمپین حذف شد و سپرده به حساب شما برگشت.`,parse_mode:"HTML"});
+            } else if(ch.owner_id){
+                await bale(env,"sendMessage",{chat_id:ch.owner_id,text:`⚠️ <b>هشدار دسترسی!</b>\n\n📢 کمپین: ${ch.title || "بدون عنوان"} (${ch.username ? "@" + ch.username : "بدون یوزرنیم"})\n🆔 شناسه کمپین: #${ch.id}\n👤 سفارش‌دهنده: ${ch.owner_id}\n\nربات دیگر ادمین این کانال نیست؛ کمپین متوقف شد.\n🔗 برای رفع مشکل، ربات را دوباره ادمین کنید و سپس از پنل ادمین گزینه Resume را بزنید.`,parse_mode:"HTML"});
+            }
         }
     } catch(e) {
         // اگر API بله موقتاً خطا داد، کمپین را متوقف نکن
