@@ -91,7 +91,7 @@ async function addVesting(db, uid, amount) {
     await db.prepare("INSERT INTO vesting (user_id, amount, release_at) VALUES (?, ?, ?)").bind(uid, amount, release_at).run();
 }
 
-async function releaseVesting(db, uid) {
+ async function releaseVesting(env, db, uid) {
     const now = new Date().toISOString();
     const rows = (await db.prepare("SELECT * FROM vesting WHERE user_id=? AND release_at <= ?").bind(uid, now).all()).results;
     if (rows.length) {
@@ -147,7 +147,7 @@ const tierKB=()=>({inline_keyboard:[Object.entries(TIERS).map(([k,v])=>({text:v.
 async function seedMissions(db){const c=await db.prepare("SELECT COUNT(*) c FROM missions").first();if(c.c>0)return;await db.prepare("INSERT INTO missions (title,description,type,reward) VALUES (?,?,?,?)").bind("عضویت در کانال مرکزی","عضو کانال "+CLUB_CHANNEL+" شو.","club",5).run();await db.prepare("INSERT INTO missions (title,description,type,reward) VALUES (?,?,?,?)").bind("انجام اولین تسک تأییدشده","یک تسک کشف را کامل کن و پاداش بگیر.","task",5).run();await db.prepare("INSERT INTO missions (title,description,type,reward) VALUES (?,?,?,?)").bind("دعوت یک دوست","با لینک دعوتت یک دوست را عضو کن.","referral",15).run();}
 async function handleStart(u,env){
   const uid=u.message.from.id,db=env.DB;
-  await releaseVesting(db, uid); // 🌟 آزادسازی وستینگ در هنگام استارت
+   await releaseVesting(env, db, uid); // 🌟 آزادسازی وستینگ در هنگام استارت
   if(await isBanned(db,uid))return sendMsg(env,uid,"⛔ حساب شما مسدود است.");
   const text=u.message.text||"";
   const ref=text.includes("ref_")?text.split("ref_")[1].trim():null;
@@ -245,6 +245,11 @@ if(data==="noop")return;
 if(data==="cancel"){await clearState(db,uid);return edit("❌ انصراف.");}
 if(data==="disc")return showDiscover(q,env,0);
 if(data.startsWith("next:"))return showDiscover(q,env,parseInt(data.slice(5)));
+if(data.startsWith("wakeup:")) {
+    const mId = parseInt(data.slice(7));
+    await db.prepare("UPDATE memberships SET last_wakeup_at = ? WHERE id=?").bind(new Date().toISOString(), mId).run();
+    return edit("✅ عالیه! فعال بودن شما ثبت شد.");
+}
 if(data.startsWith("prev:"))return showDiscover(q,env,parseInt(data.slice(5)));
 if(data.startsWith("quiz:")){const[,mId,idx]=data.split(":").map(Number);const m=await db.prepare("SELECT * FROM memberships WHERE id=?").bind(mId).first();if(!m)return;const ch=await db.prepare("SELECT * FROM channels WHERE id=?").bind(m.channel_id).first();if(!ch)return;if(m.quiz_correct)return edit("✅ قبلاً پاسخ درست داده‌ای.");if((m.quiz_attempts||0)>=QUIZ_MAX_ATTEMPTS)return edit(`⛔ ${faNum(QUIZ_MAX_ATTEMPTS)} تلاش ناموفق. پاداش کوییز از دست رفت.`);await db.prepare("UPDATE memberships SET quiz_attempts=COALESCE(quiz_attempts,0)+1 WHERE id=?").bind(mId).run();const opts=JSON.parse(ch.quiz_options||"[]");const tier=TIERS[ch.tier]||TIERS.standard;if(opts[idx]===ch.quiz_answer){await db.prepare("UPDATE memberships SET quiz_correct=1 WHERE id=?").bind(mId).run();await addQS(db,mId,40);const paid=await payAction(env,db,m,"QUIZ",tier.quiz,ch);return edit(`✅ درست! +${faNum(paid)} سکه\n📈 امتیاز کیفیت +۴۰`);}const remaining=QUIZ_MAX_ATTEMPTS-(m.quiz_attempts||0);return edit(`❌ اشتباه. ${faNum(remaining)} تلاش باقی مانده.`);}
 if(data.startsWith("mclaim:")){const mId=parseInt(data.slice(7));const m=await db.prepare("SELECT * FROM missions WHERE id=? AND status='active'").bind(mId).first();if(!m)return edit("❌ مأموریت فعال نیست.");const now=new Date().toISOString();if(m.start_at&&m.start_at>now)return edit("⏰ این مأموریت هنوز شروع نشده.");if(m.expire_at&&m.expire_at<now)return edit("⏳ این مأموریت منقضی شده.");const claimed=await db.prepare("SELECT 1 FROM mission_claims WHERE mission_id=? AND user_id=?").bind(mId,uid).first();if(claimed)return edit("✅ قبلاً این مأموریت را انجام داده‌ای.");let ok=false;if(m.type==="club"){const r=await bale(env,"getChatMember",{chat_id:CLUB_CHANNEL,user_id:uid});ok=["member","creator","administrator"].includes(r.result?.status);}else if(m.type==="referral"){ok=!!(await db.prepare("SELECT 1 FROM users WHERE referred_by=?").bind(uid).first());}else if(m.type==="task"){ok=!!(await db.prepare("SELECT 1 FROM memberships WHERE user_id=? AND status='rewarded'").bind(uid).first());}else if(m.type==="stake"){ok=!!(await db.prepare("SELECT 1 FROM stakes WHERE user_id=? AND status='active'").bind(uid).first());}if(!ok)return edit(`❌ شرایط مأموریت هنوز برقرار نیست.\n${m.description||""}`);if(m.max_claims>0){const c=await db.prepare("SELECT COUNT(*) c FROM mission_claims WHERE mission_id=?").bind(mId).first();if(c.c>=m.max_claims)return edit("⛔ ظرفیت مأموریت پر شده.");}await db.prepare("INSERT INTO mission_claims (mission_id,user_id) VALUES (?,?)").bind(mId,uid).run();const paid=await mintFromBudget(db,uid,m.reward);if(paid)await logTx(db,uid,"MISSION_"+mId,m.reward,(await db.prepare("SELECT balance FROM users WHERE user_id=?").bind(uid).first()).balance,m.title);return edit(paid?`🎉 +${faNum(m.reward)} سکه\nمأموریت «${m.title}» انجام شد!`:"💸 بودجه پاداش خالی است. بعداً امتحان کن.");}
