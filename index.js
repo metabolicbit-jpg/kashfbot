@@ -325,27 +325,42 @@ async function ctx_broadcast(env,db,text,senderId){const users=(await db.prepare
 async function runCron(env){const db=env.DB,now=new Date().toISOString();const e=await getEconomy(db);const refuel=Math.floor(e.weekly_commission*0.1);if(refuel>0)await db.prepare("UPDATE economy_state SET reward_budget=reward_budget+?, weekly_commission=weekly_commission-? WHERE id=1").bind(refuel,refuel).run();const due=(await db.prepare("SELECT * FROM memberships WHERE status='joined' AND check_at<=?").bind(now).all()).results;for(const m of due){const ch=await db.prepare("SELECT * FROM channels WHERE id=?").bind(m.channel_id).first();if(!ch)continue;if(await isBanned(db,m.user_id))continue;const tier=TIERS[ch.tier]||TIERS.standard;const res=await bale(env,"getChatMember",{chat_id:"@"+ch.username,user_id:m.user_id});if(["member","creator","administrator"].includes(res.result?.status)){await db.prepare("UPDATE memberships SET status='rewarded' WHERE id=?").bind(m.id).run();await addQS(db,m.id,20);const paid=await payAction(env,db,m,"JOIN",tier.join,ch);await db.prepare("UPDATE users SET trust_score=MIN(100,trust_score+5) WHERE user_id=?").bind(m.user_id).run();if(tier.ret30)await db.prepare("UPDATE memberships SET guarantee_until=? WHERE id=?").bind(new Date(Date.now()+30*86400000).toISOString(),m.id).run();await bale(env,"sendMessage",{chat_id:m.user_id,text:`🎉 ماندگاری ۴۸ ساعته تأیید شد! +${faNum(paid)} سکه\n📢 کانال: @${ch.username}`,parse_mode:"HTML"});if(ch.owner_id){const ch2=await db.prepare("SELECT acquired,target FROM channels WHERE id=?").bind(ch.id).first();await notifyOwner(env,`📥 تأیید ماندگاری: کاربر ${m.user_id}\n📢 @${ch.username} | +${faNum(paid)} سکه\n📈 پیشرفت کمپین: ${faNum(ch2.acquired)}/${faNum(ch2.target)}`);}}else{await db.prepare("UPDATE memberships SET status='penalized' WHERE id=?").bind(m.id).run();await db.prepare("UPDATE users SET balance=MAX(0,balance-?), trust_score=MAX(0,trust_score-10) WHERE user_id=?").bind(PENALTY_COINS,m.user_id).run();await burnCoins(db, PENALTY_COINS);await bale(env,"sendMessage",{chat_id:m.user_id,text:`⚠️ خروج زودهنگام: −${PENALTY_COINS} (سوزانده شد)`,parse_mode:"HTML"});}await new Promise(r=>setTimeout(r,1000));}const g30=(await db.prepare("SELECT * FROM memberships WHERE guarantee_until IS NOT NULL AND guarantee_until<=? AND retention30_verified=0 AND status='rewarded'").bind(now).all()).results;for(const m of g30){const ch=await db.prepare("SELECT * FROM channels WHERE id=?").bind(m.channel_id).first();if(!ch)continue;const tier=TIERS[ch.tier]||TIERS.standard;const res=await bale(env,"getChatMember",{chat_id:"@"+ch.username,user_id:m.user_id});if(["member","creator","administrator"].includes(res.result?.status)){await db.prepare("UPDATE memberships SET retention30_verified=1 WHERE id=?").bind(m.id).run();await addQS(db,m.id,20);const paid=await payAction(env,db,m,"RET30",tier.ret30,ch);await db.prepare("UPDATE users SET trust_score=MIN(100,trust_score+10) WHERE user_id=?").bind(m.user_id).run();await bale(env,"sendMessage",{chat_id:m.user_id,text:`🏅 ماندگاری ۳۰ روزه تأیید شد! +${faNum(paid)} سکه\n📢 کانال: @${ch.username}`,parse_mode:"HTML"});await notifyOwner(env,`📥 تأیید ۳۰ روزه: کاربر ${m.user_id}\n📢 @${ch.username} | +${faNum(paid)} سکه`);}else{const refund=tier.join;await db.prepare("UPDATE memberships SET retention30_verified=0, status='penalized' WHERE id=?").bind(m.id).run();await db.prepare("UPDATE users SET balance=MAX(0,balance-?) WHERE user_id=?").bind(refund,m.user_id).run();await db.prepare("UPDATE users SET balance=balance+? WHERE user_id=?").bind(refund,ch.owner_id).run();await burnCoins(db, refund);await db.prepare("UPDATE economy_state SET total_locked=total_locked-? WHERE id=1").bind(refund).run();const ownerBal=await db.prepare("SELECT balance FROM users WHERE user_id=?").bind(ch.owner_id).first();await logTx(db,ch.owner_id,"RET30_REFUND",refund,ownerBal.balance,`کاربر ${m.user_id} قبل از ۳۰ روز خارج شد`);await bale(env,"sendMessage",{chat_id:ch.owner_id,text:`💰 بازپرداخت تضمین: کاربر قبل از ۳۰ روز خارج شد.\n🪙 +${faNum(refund)} سکه به حساب شما برگشت.`,parse_mode:"HTML"});}await new Promise(r=>setTimeout(r,1000));}
 const wakeupUsers = (await db.prepare("SELECT m.*, c.title, c.username, c.tier FROM memberships m JOIN channels c ON m.channel_id=c.id WHERE m.status='joined' AND (m.last_wakeup_at IS NULL OR m.last_wakeup_at < datetime('now', '-7 days'))").all()).results;
 for(const m of wakeupUsers){const tier=TIERS[m.tier]||TIERS.standard;await bale(env,"sendMessage",{chat_id:m.user_id,text:`🔔 تمدید حضور در کانال ${m.title}\nبرای اینکه فعال بمونی و پاداش بگیری، روی دکمه زیر بزن:`,reply_markup:{inline_keyboard:[[{text:"✅ من هنوز فعال هستم",callback_data:`wakeup:${m.id}`}]]}});await db.prepare("UPDATE memberships SET last_wakeup_at = ? WHERE id=?").bind(now, m.id).run();await new Promise(r=>setTimeout(r,1000));}
-// رفع آدمین از کانال‌ها (با محافظت در برابر خطای موقت API)
-const me=await bale(env,"getMe");const actives=(await db.prepare("SELECT * FROM channels WHERE status='active'").all()).results;
-for(const ch of actives){
-    try {
-        const adm=await bale(env,"getChatAdministrators",{chat_id:"@"+ch.username});
-        if (!adm.ok) { continue; } // رفع باگ اصلی: اگر خطای موقت بود، ادامه بده
-        if(!(adm.result || []).some(a=>a.user?.id===me.result?.id)){
-            const v=ch.violations+1,st=v>=3?"removed":"paused";
-            await db.prepare("UPDATE channels SET violations=?, status=?, bot_is_admin=0 WHERE id=?").bind(v,st,ch.id).run();
-            if(v>=3){
-                await refundEscrow(env,db,ch.id,"حذف دائم");
-                if(ch.owner_id) await bale(env,"sendMessage",{chat_id:ch.owner_id,text:`❌ <b>حذف دائم!</b>\n\n📢 کمپین: ${ch.title || "بدون عنوان"} (${ch.username ? "@" + ch.username : "بدون یوزرنیم"})\n🆔 شناسه کمپین: #${ch.id}\n👤 سفارش‌دهنده: ${ch.owner_id}\n\nبه دلیل ۳ بار عدم حضور ربات به عنوان ادمین، کمپین حذف شد و سپرده به حساب شما برگشت.`,parse_mode:"HTML"});
-            } else if(ch.owner_id){
-                await bale(env,"sendMessage",{chat_id:ch.owner_id,text:`⚠️ <b>هشدار دسترسی!</b>\n\n📢 کمپین: ${ch.title || "بدون عنوان"} (${ch.username ? "@" + ch.username : "بدون یوزرنیم"})\n🆔 شناسه کمپین: #${ch.id}\n👤 سفارش‌دهنده: ${ch.owner_id}\n\nربات دیگر ادمین این کانال نیست؛ کمپین متوقف شد.\n🔗 برای رفع مشکل، ربات را دوباره ادمین کنید و سپس از پنل ادمین گزینه Resume را بزنید.`,parse_mode:"HTML"});
+// رفع آدمین از کانال‌ها (نسخه امن - اصلاح شده)
+const me = await bale(env, "getMe");
+if (!me.ok || !me.result?.id) {
+    console.log("getMe failed, skipping admin check entirely");
+} else {
+    const actives = (await db.prepare("SELECT * FROM channels WHERE status='active'").all()).results;
+    for (const ch of actives) {
+        try {
+            const adm = await bale(env, "getChatAdministrators", { chat_id: "@" + ch.username });
+            // اگر پاسخ API معتبر نبود (خطا، لیست خالی، غیرآرایه)، از این کمپین عبور کن
+            if (!adm.ok || !Array.isArray(adm.result) || adm.result.length === 0) {
+                continue;
             }
+            const isBotAdmin = (adm.result || []).some(a => a.user?.id === me.result.id);
+            if (!isBotAdmin) {
+                const v = (ch.violations || 0) + 1;
+                const st = v >= 3 ? "removed" : "paused";
+                await db.prepare("UPDATE channels SET violations=?, status=?, bot_is_admin=0 WHERE id=?").bind(v, st, ch.id).run();
+                if (v >= 3) {
+                    await refundEscrow(env, db, ch.id, "حذف دائم");
+                    if (ch.owner_id) await bale(env, "sendMessage", { chat_id: ch.owner_id, text: `❌ <b>حذف دائم!</b>\n\n📢 کمپین: ${ch.title || "بدون عنوان"} (${ch.username ? "@" + ch.username : "بدون یوزرنیم"})\n🆔 شناسه کمپین: #${ch.id}\n👤 سفارش‌دهنده: ${ch.owner_id}\n\nبه دلیل ۳ بار عدم حضور ربات به عنوان ادمین، کمپین حذف شد و سپرده به حساب شما برگشت.`, parse_mode: "HTML" });
+                } else if (ch.owner_id) {
+                    await bale(env, "sendMessage", { chat_id: ch.owner_id, text: `⚠️ <b>هشدار دسترسی!</b>\n\n📢 کمپین: ${ch.title || "بدون عنوان"} (${ch.username ? "@" + ch.username : "بدون یوزرنیم"})\n🆔 شناسه کمپین: #${ch.id}\n👤 سفارش‌دهنده: ${ch.owner_id}\n\nربات دیگر ادمین این کانال نیست؛ کمپین متوقف شد.`, parse_mode: "HTML" });
+                }
+            } else {
+                // 🔥 نکته مهم: اگر ربات ادمین است، تعداد خطاها را ریست کن
+                if ((ch.violations || 0) > 0 || ch.bot_is_admin === 0) {
+                    await db.prepare("UPDATE channels SET violations=0, bot_is_admin=1 WHERE id=?").bind(ch.id).run();
+                }
+            }
+        } catch (e) {
+            console.log("Error checking admin status for channel:", ch.id, e);
         }
-    } catch(e) {
-        // اگر API بله موقتاً خطا داد، کمپین را متوقف نکن
-        console.log("Error checking admin status for channel:", ch.id, e);
     }
 }
+
 } // <--- این آکولاد بسته‌کننده تابع runCron است که جا افتاده بود!
 
 export default{async fetch(req,env,ctx){const url=new URL(req.url);if(req.method==="POST"&&url.pathname==="/webhook"){const update=await req.json();ctx.waitUntil(trackQuota(env));ctx.waitUntil(route(update,env).catch(async(e)=>{try{await bale(env,"sendMessage",{chat_id:parseInt(env.OWNER_ID||"1381797564"),text:"⚠️ خطای بات:\n"+String(e&&e.message?e.message:e).slice(0,500),parse_mode:"HTML"});}catch(e2){}}));return new Response("ok");}if(url.pathname==="/health")return new Response("🌱 KashfBot v14.7 alive");return new Response("Not Found",{status:404});},async scheduled(_e,env,ctx){ctx.waitUntil(runCron(env).catch(()=>{}));}};
