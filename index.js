@@ -283,7 +283,7 @@ if(data==="camp_confirm"){
   if(result.meta.changes===0){const x=await db.prepare("SELECT balance FROM users WHERE user_id=?").bind(uid).first();return edit(`❌ موجودی کافی نیست.\nنیاز: ${faNum(cost)} | داری: ${faNum(x?.balance||0)}\n\nاز «💎 خرید سکه» شارژ کن.`);}
   await db.prepare("UPDATE economy_state SET total_locked=total_locked+? WHERE id=1").bind(cost).run();
   await logTx(db,uid,"ESCROW",-cost,(await db.prepare("SELECT balance FROM users WHERE user_id=?").bind(uid).first()).balance,d.chat?.title||"");
-  await db.prepare("INSERT INTO channels (owner_id,chat_id,username,title,type,tier,niches,target,budget_coins,bot_is_admin,status,quiz_question,quiz_options,quiz_answer,anchor_post_link,post_distance) VALUES (?,?,?,?,?,?,?,?,1,'active',?,?,?,?,?,?)").bind(uid,d.chat.chat_id,d.chat.username,d.chat.title,d.chat.type,d.tier,JSON.stringify(d.tags||[]),d.target,cost,d.quiz_question||"",d.quiz_options||"[]",d.quiz_answer||"",d.anchor_post_link||"",d.post_distance||5).run();
+  await db.prepare("INSERT INTO channels (owner_id,chat_id,username,title,type,tier,niches,target,budget_coins,bot_is_admin,status,quiz_question,quiz_options,quiz_answer,anchor_post_link,post_distance) VALUES (?,?,?,?,?,?,?,?,?,1,'active',?,?,?,?,?)").bind(uid,d.chat.chat_id,d.chat.username,d.chat.title,d.chat.type,d.tier,JSON.stringify(d.tags||[]),d.target,cost,d.quiz_question||"",d.quiz_options||"[]",d.quiz_answer||"",d.anchor_post_link||"",d.post_distance||5).run();
   await clearState(db,uid);
   return edit(`🎉 کمپین «${d.chat.title}» فعال شد!\n💰 ${faNum(cost)} سکه قفل شد.\n📊 هدف: ${faNum(d.target)} عضو`);
 }
