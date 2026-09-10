@@ -276,14 +276,27 @@ if(data.startsWith("ccat:")||data==="ccatback"||data.startsWith("csub:")){const 
 if(data==="ctags_done"){const st=await getState(db,uid);if(!st)return;const d=JSON.parse(st.data||"{}");const sel=d.csel||[];if(!sel.length)return edit("❌ حداقل یک زیرشاخه.");d.tags=sel;await setState(db,uid,"CAMP_TIER",d);return edit(`✅ تگ‌ها: ${sel.join("، ")}\n\n🏷 سطح کمپین را انتخاب کن:`,tierKB());}
 if(data.startsWith("tier:")){const st=await getState(db,uid);if(!st)return;const d=JSON.parse(st.data||"{}");d.tier=data.slice(5);await setState(db,uid,st.step,d);if(d.tier==="premium"){await setState(db,uid,"CAMP_ANCHOR",d);return edit("🏆 سطح پریمیوم.\n\n🔗 لینک پست مرجع را بفرست:");}await setState(db,uid,"CAMP_TARGET",d);return edit(`✅ سطح: ${TIERS[d.tier].label}\nتعداد عضو هدف را بفرست (حداقل ۲۵):`);}
 if(data==="camp_confirm"){
-  const st=await getState(db,uid);if(!st)return;
+  const st=await getState(db,uid);
+  if(!st){return edit("❌ اطلاعات کمپین یافت نشد. لطفاً دوباره تلاش کنید.");}
   const d=JSON.parse(st.data||"{}");
   const cost=d.cost||0;
+  if(!d.chat || !d.chat.chat_id){return edit("❌ اطلاعات کانال ناقص است. لطفاً دوباره کمپین را ثبت کنید.");}
   const result=await db.prepare("UPDATE users SET balance=balance-? WHERE user_id=? AND balance>=?").bind(cost,uid,cost).run();
-  if(result.meta.changes===0){const x=await db.prepare("SELECT balance FROM users WHERE user_id=?").bind(uid).first();return edit(`❌ موجودی کافی نیست.\nنیاز: ${faNum(cost)} | داری: ${faNum(x?.balance||0)}\n\nاز «💎 خرید سکه» شارژ کن.`);}
-  await db.prepare("UPDATE economy_state SET total_locked=total_locked+? WHERE id=1").bind(cost).run();
-  await logTx(db,uid,"ESCROW",-cost,(await db.prepare("SELECT balance FROM users WHERE user_id=?").bind(uid).first()).balance,d.chat?.title||"");
-  await db.prepare("INSERT INTO channels (owner_id,chat_id,username,title,type,tier,niches,target,budget_coins,bot_is_admin,status,quiz_question,quiz_options,quiz_answer,anchor_post_link,post_distance) VALUES (?,?,?,?,?,?,?,?,?,1,'active',?,?,?,?,?)").bind(uid,d.chat.chat_id,d.chat.username,d.chat.title,d.chat.type,d.tier,JSON.stringify(d.tags||[]),d.target,cost,d.quiz_question||"",d.quiz_options||"[]",d.quiz_answer||"",d.anchor_post_link||"",d.post_distance||5).run();
+  if(result.meta.changes===0){
+    const x=await db.prepare("SELECT balance FROM users WHERE user_id=?").bind(uid).first();
+    return edit(`❌ موجودی کافی نیست.\nنیاز: ${faNum(cost)} | داری: ${faNum(x?.balance||0)}\n\nاز «💎 خرید سکه» شارژ کن.`);
+  }
+  try {
+    await db.prepare("UPDATE economy_state SET total_locked=total_locked+? WHERE id=1").bind(cost).run();
+    await logTx(db,uid,"ESCROW",-cost,(await db.prepare("SELECT balance FROM users WHERE user_id=?").bind(uid).first()).balance,d.chat?.title||"");
+    await db.prepare("INSERT INTO channels (owner_id,chat_id,username,title,chat_type,tier,niches,target,budget_coins,bot_is_admin,status,quiz_question,quiz_options,quiz_answer,anchor_post_link,post_distance) VALUES (?,?,?,?,?,?,?,?,?,1,'active',?,?,?,?,?)").bind(uid,d.chat.chat_id,d.chat.username,d.chat.title,d.chat.type,d.tier,JSON.stringify(d.tags||[]),d.target,cost,d.quiz_question||"",d.quiz_options||"[]",d.quiz_answer||"",d.anchor_post_link||"",d.post_distance||5).run();
+  } catch(e) {
+    // 🔥 اگر خطا رخ داد، مبلغ را برگردان
+    await db.prepare("UPDATE users SET balance=balance+? WHERE user_id=?").bind(cost,uid).run();
+    await db.prepare("UPDATE economy_state SET total_locked=total_locked-? WHERE id=1").bind(cost).run();
+    console.error("Campaign insert error:", e);
+    return edit(`❌ خطا در ثبت کمپین.\nجزئیات: ${String(e.message||e).slice(0,200)}\n\nلطفاً به پشتیبانی اطلاع دهید.`);
+  }
   await clearState(db,uid);
   return edit(`🎉 کمپین «${d.chat.title}» فعال شد!\n💰 ${faNum(cost)} سکه قفل شد.\n📊 هدف: ${faNum(d.target)} عضو`);
 }
