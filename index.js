@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════
-// 🌱 KashfBot v14.9 — Golden Economy Build (FINAL)
+// 🌱 KashfBot v15.0 — Golden Economy Build (FINAL)
 // ═══════════════════════════════════════════
 const BOT_NAME = "کشف", CLUB_CHANNEL = "@KashfClub";
 const BOT_USERNAME = "kashfbot";
@@ -54,7 +54,6 @@ const JALALI_MONTHS = ["فروردین","اردیبهشت","خرداد","تیر"
 const faNum = n => String(n).replace(/\d/g, d => "۰۱۲۳۴۵۶۷۸۹"[d]);
 function g2j(gy,gm,gd){const g=[0,31,59,90,120,151,181,212,243,273,304,334];let jy=(gy<=1600)?0:979;gy-=(gy<=1600)?621:1600;const gy2=(gm>2)?(gy+1):gy;let d=(365*gy)+Math.floor((gy2+3)/4)-Math.floor((gy2+99)/100)+Math.floor((gy2+399)/400)-80+gd+g[gm-1];jy+=33*Math.floor(d/12053);d%=12053;jy+=4*Math.floor(d/1461);d%=1461;if(d>365){jy+=Math.floor((d-1)/365);d=(d-1)%365;}const jm=(d<186)?1+Math.floor(d/31):7+Math.floor((d-186)/30);const jd=1+((d<186)?(d%31):((d-186)%30));return[jy,jm,jd];}
 
-// ✅ FIX 1: IR با مدیریت تاریخ‌های null و SQLite format
 const IR = iso => {
     if(!iso) return new Date(NaN);
     let d;
@@ -70,7 +69,6 @@ const IR = iso => {
     return new Date(d.getTime() + 3.5*3600*1000);
 };
 
-// ✅ FIX 2: faDate مقاوم
 function faDate(iso){ 
     try { 
         const d = IR(iso); 
@@ -83,7 +81,6 @@ function faDate(iso){
     } 
 }
 
-// ✅ FIX 3: faTime مقاوم
 function faTime(iso){ 
     try { 
         const d = IR(iso); 
@@ -358,26 +355,35 @@ if(data.startsWith("mission:")){
     if(!ch)return edit("❌");
     const tier=TIERS[ch.tier]||TIERS.standard;
     if(ch.budget_coins<=0)return edit("⛔ بودجه این کمپین تمام شده.");
-    const existing=await db.prepare("SELECT * FROM memberships WHERE user_id=? AND channel_id=?").bind(uid,chId).first();
+
+    // ✅ FIX: آخرین رکورد را بخوان
+    const existing=await db.prepare("SELECT * FROM memberships WHERE user_id=? AND channel_id=? ORDER BY id DESC LIMIT 1").bind(uid,chId).first();
+
     if(existing){
         if(existing.status==="rewarded")return edit("✅ قبلاً انجام شده.");
         if(existing.status==="penalized")return edit("⛔ جریمه شده‌ای.");
         if(existing.status==="joined")return edit("⏳ در انتظار تأیید.");
     }
 
-    // ✅ FIX 4: ذخیره با فرمت ISO استاندارد
     const nowISO = new Date().toISOString();
     const checkISO = new Date(Date.now() + RETENTION_HOURS * 3600 * 1000).toISOString();
-    await db.prepare("INSERT INTO memberships (user_id,channel_id,status,joined_at,check_at) VALUES (?,?,?,?,?)").bind(uid,chId,"joined",nowISO,checkISO).run();
 
-    const m=await db.prepare("SELECT * FROM memberships WHERE user_id=? AND channel_id=?").bind(uid,chId).first();
-    const mId=m.id;
+    let mId;
+    if(existing && existing.status==="assigned"){
+        // ✅ FIX: به‌روزرسانی رکورد موجود
+        await db.prepare("UPDATE memberships SET status='joined', joined_at=?, check_at=? WHERE id=?").bind(nowISO, checkISO, existing.id).run();
+        mId = existing.id;
+    } else {
+        const ins = await db.prepare("INSERT INTO memberships (user_id,channel_id,status,joined_at,check_at) VALUES (?,?,?,?,?)").bind(uid,chId,"joined",nowISO,checkISO).run();
+        mId = ins.meta.last_row_id;
+    }
+
+    const m=await db.prepare("SELECT * FROM memberships WHERE id=?").bind(mId).first();
     const check=m.check_at;
 
     await payAction(env,db,m,"JOIN",tier.join,ch);
     await addQS(db,mId,20);
 
-    // ✅ FIX 4: ارسال داینامیک تسک‌ها
     const tasksSent = [];
     if(tier.quiz && ch.quiz_question){
         const opts=JSON.parse(ch.quiz_options||"[]");
@@ -389,7 +395,6 @@ if(data.startsWith("mission:")){
         tasksSent.push("فوروارد");
     }
 
-    // ✅ FIX 4: پیام نهایی داینامیک
     let finalMsg = `✅ عضویت ثبت شد!\n⏳ تأیید ماندگاری تا ${faDate(check)}`;
     if(tasksSent.length > 0){
         finalMsg += `\n\n🎁 تسک‌های پاداش به پیوی‌ات آمد: ${tasksSent.join(" + ")}`;
@@ -400,7 +405,10 @@ if(data.startsWith("mission:")){
 }
 }
 async function showDiscover(q,env,idx){const db=env.DB,uid=q.from.id;const u=await db.prepare("SELECT * FROM users WHERE user_id=?").bind(uid).first();const my=JSON.parse(u.interests||"[]");const all=(await db.prepare("SELECT * FROM channels WHERE status='active' AND bot_is_admin=1 AND owner_id!=?").bind(uid).all()).results;if(!all.length)return bale(env,"editMessageText",{chat_id:q.message.chat.id,message_id:q.message.message_id,text:"😴 کمپین فعالی نیست.",parse_mode:"HTML"});
-const list=scored0(all,my);const pos=((idx%list.length)+list.length)%list.length;const{c:ch,hit}=list[pos];const isMatch=hit>0;const overlap=Math.round(hit/Math.max(my.length,1)*100);const g=await channelGrade(db,ch.id);const tier=TIERS[ch.tier]||TIERS.standard;const gradeEmoji={A:"🥇",B:"🥈",C:"🥉",D:"🏆"}[g.g]||"🏆";const rewardEmoji=tier.max>=5?"💎":"🪙";const m=await db.prepare("SELECT status FROM memberships WHERE user_id=? AND channel_id=?").bind(uid,ch.id).first();const badge=m?({joined:"⏳ در انتظار تأیید",rewarded:"✅ انجام شد",assigned:"🔘 شروع نشده",penalized:"⛔ جریمه شد"}[m.status]||""):"";const text=`🌟 <b>${ch.title}</b> (${faNum(pos+1)}/${faNum(list.length)})\n${isMatch?`🎯 تشابه ${faNum(overlap)}٪`:"🌐 عمومی"}\n${gradeEmoji} رتبه: ${g.g}\n${rewardEmoji} پاداش: ${faNum(tier.max)} سکه${badge?"\n"+badge:""}`;await bale(env,"editMessageText",{chat_id:q.message.chat.id,message_id:q.message.message_id,text,parse_mode:"HTML",reply_markup:{inline_keyboard:[[{text:"🚀 شروع مأموریت",callback_data:"mission:"+ch.id}],[{text:"⏮ قبلی",callback_data:"prev:"+(pos-1)},{text:"⏭ بعدی",callback_data:"next:"+(pos+1)},{text:"🚩 گزارش",callback_data:"report:"+ch.id}]]}});}
+const list=scored0(all,my);const pos=((idx%list.length)+list.length)%list.length;const{c:ch,hit}=list[pos];const isMatch=hit>0;const overlap=Math.round(hit/Math.max(my.length,1)*100);const g=await channelGrade(db,ch.id);const tier=TIERS[ch.tier]||TIERS.standard;const gradeEmoji={A:"🥇",B:"🥈",C:"🥉",D:"🏆"}[g.g]||"🏆";const rewardEmoji=tier.max>=5?"💎":"🪙";
+// ✅ FIX: آخرین رکورد
+const m=await db.prepare("SELECT status FROM memberships WHERE user_id=? AND channel_id=? ORDER BY id DESC LIMIT 1").bind(uid,ch.id).first();
+const badge=m?({joined:"⏳ در انتظار تأیید",rewarded:"✅ انجام شد",assigned:"🔘 شروع نشده",penalized:"⛔ جریمه شد"}[m.status]||""):"";const text=`🌟 <b>${ch.title}</b> (${faNum(pos+1)}/${faNum(list.length)})\n${isMatch?`🎯 تشابه ${faNum(overlap)}٪`:"🌐 عمومی"}\n${gradeEmoji} رتبه: ${g.g}\n${rewardEmoji} پاداش: ${faNum(tier.max)} سکه${badge?"\n"+badge:""}`;await bale(env,"editMessageText",{chat_id:q.message.chat.id,message_id:q.message.message_id,text,parse_mode:"HTML",reply_markup:{inline_keyboard:[[{text:"🚀 شروع مأموریت",callback_data:"mission:"+ch.id}],[{text:"⏮ قبلی",callback_data:"prev:"+(pos-1)},{text:"⏭ بعدی",callback_data:"next:"+(pos+1)},{text:"🚩 گزارش",callback_data:"report:"+ch.id}]]}});}
 function scored0(all,my){const arr=all.map(c=>({c,hit:JSON.parse(c.niches||"[]").filter(t=>my.includes(t)).length}));const matched=arr.filter(x=>x.hit>0);const others=arr.filter(x=>x.hit===0);return[...matched,...others].map(x=>({...x,w:x.hit>0?2:1})).sort((a,b)=>b.w-a.w||b.hit-a.hit);}
 async function handleForward(u,env,fwdUser){const db=env.DB,uid=u.message.from.id;const m=await db.prepare("SELECT m.* FROM memberships m JOIN channels c ON m.channel_id=c.id WHERE m.user_id=? AND m.forward_verified=0 AND m.status IN ('joined','rewarded') AND c.username=? ORDER BY m.id DESC LIMIT 1").bind(uid,fwdUser).first();if(!m){const pending=await db.prepare("SELECT 1 FROM memberships m JOIN channels c ON m.channel_id=c.id WHERE m.user_id=? AND m.forward_verified=0 AND m.status IN ('joined','rewarded') AND c.tier IN ('premium','guaranteed')").bind(uid).first();if(pending)await sendMsg(env,uid,"ℹ️ این فوروارد به هیچ تسک فعال تو مربوط نیست.\nلطفاً پست را از همان کانالی فوروارد کن که تسکش را شروع کرده‌ای.");return false;}const ch=await db.prepare("SELECT * FROM channels WHERE id=?").bind(m.channel_id).first();if(!ch)return false;const tier=TIERS[ch.tier]||TIERS.standard;if(tier.forward<=0)return false;await db.prepare("UPDATE memberships SET forward_verified=1 WHERE id=?").bind(m.id).run();await addQS(db,m.id,20);const paid=await payAction(env,db,m,"FORWARD",tier.forward,ch);await sendMsg(env,uid,`✅ فوروارد تأیید شد! +${faNum(paid)} سکه\n📢 کانال: @${ch.username}\n📈 امتیاز کیفیت +۲۰`);return true;}
 async function handlePayment(u,env){const db=env.DB;const sp=u.message.successful_payment;const pay=await db.prepare("SELECT * FROM payments WHERE payload=?").bind(sp.invoice_payload).first();if(!pay||pay.status==="paid")return;const toman=sp.total_amount/TOMAN_TO_RIAL;const coins=await mintPurchase(db,u.message.from.id,toman);await db.prepare("UPDATE payments SET status='paid', coins_granted=?, bale_transaction_id=? WHERE payload=?").bind(coins,sp.provider_payment_charge_id||"",sp.invoice_payload).run();await sendMsg(env,u.message.from.id,`💎 خرید موفق! +${faNum(coins)} سکه`,MAIN_KB);}
@@ -416,16 +424,12 @@ async function handleAdminEconomy(env,uid){const db=env.DB;const e=await getEcon
 async function handleAdminQuota(env,uid){const db=env.DB;const date=new Date().toISOString().slice(0,10);const q=await db.prepare("SELECT requests FROM quota WHERE date=?").bind(date).first();const req=q?.requests||0;const tables=["users","channels","memberships","transactions","reports","stakes","lottery_tickets","missions","mission_claims"];const counts={};let total=0;for(const t of tables){const r=await db.prepare(`SELECT COUNT(*) c FROM ${t}`).first();counts[t]=r.c;total+=r.c;}return sendMsg(env,uid,`📊 گزارش مصرف و سهمیه\n📅 ${faDate(new Date().toISOString())}\n\n🌐 درخواست امروز: ${faNum(req)} / ${faNum(REQ_LIMIT)}\n✅ مانده: ${faNum(Math.max(REQ_LIMIT-req,0))}\n\n🗄 حجم دیتابیس: ${faNum(total)} رکورد\n💾 ظرفیت D1 رایگان: ۵ گیگابایت`,{inline_keyboard:[[{text:"🔙 بازگشت",callback_data:"adm_menu"}]]});}
 async function ctx_broadcast(env,db,text,senderId){const users=(await db.prepare("SELECT user_id FROM users").all()).results;const total=users.length;let ok=0,fail=0;for(const u of users){if(u.user_id===senderId)continue;if(await isBanned(db,u.user_id))continue;try{await bale(env,"sendMessage",{chat_id:u.user_id,text,parse_mode:"HTML"});ok++;}catch(e){fail++;}if((ok+fail)%50===0)await new Promise(r=>setTimeout(r,1000)); await new Promise(r=>setTimeout(r,1000));}await notifyOwner(env,`📤 گزارش ارسال همگانی\n👥 کل: ${faNum(total)}\n✅ موفق: ${faNum(ok)}\n❌ خطا: ${faNum(fail)}`);}
 async function runCron(env){const db=env.DB,now=new Date().toISOString();const e=await getEconomy(db);const refuel=Math.floor(e.weekly_commission*0.1);if(refuel>0)await db.prepare("UPDATE economy_state SET reward_budget=reward_budget+?, weekly_commission=weekly_commission-? WHERE id=1").bind(refuel,refuel).run();const due=(await db.prepare("SELECT * FROM memberships WHERE status='joined' AND check_at<=?").bind(now).all()).results;for(const m of due){const ch=await db.prepare("SELECT * FROM channels WHERE id=?").bind(m.channel_id).first();if(!ch)continue;if(await isBanned(db,m.user_id))continue;const tier=TIERS[ch.tier]||TIERS.standard;const res=await bale(env,"getChatMember",{chat_id:"@"+ch.username,user_id:m.user_id});if(["member","creator","administrator"].includes(res.result?.status)){await db.prepare("UPDATE memberships SET status='rewarded' WHERE id=?").bind(m.id).run();await addQS(db,m.id,20);const paid=await payAction(env,db,m,"JOIN",tier.join,ch);await db.prepare("UPDATE users SET trust_score=MIN(100,trust_score+5) WHERE user_id=?").bind(m.user_id).run();if(tier.ret30)await db.prepare("UPDATE memberships SET guarantee_until=? WHERE id=?").bind(new Date(Date.now()+30*86400000).toISOString(),m.id).run();await bale(env,"sendMessage",{chat_id:m.user_id,text:`🎉 ماندگاری ۴۸ ساعته تأیید شد! +${faNum(paid)} سکه\n📢 کانال: @${ch.username}`,parse_mode:"HTML"});if(ch.owner_id){const ch2=await db.prepare("SELECT acquired,target FROM channels WHERE id=?").bind(ch.id).first();await notifyOwner(env,`📥 تأیید ماندگاری: کاربر ${m.user_id}\n📢 @${ch.username} | +${faNum(paid)} سکه\n📈 پیشرفت کمپین: ${faNum(ch2.acquired)}/${faNum(ch2.target)}`);}}else{await db.prepare("UPDATE memberships SET status='penalized' WHERE id=?").bind(m.id).run();await db.prepare("UPDATE users SET balance=MAX(0,balance-?), trust_score=MAX(0,trust_score-10) WHERE user_id=?").bind(PENALTY_COINS,m.user_id).run();await burnCoins(db, PENALTY_COINS);
-
     await bale(env,"sendMessage",{chat_id:m.user_id,text:`⚠️ <b>خروج زودهنگام ثبت شد!</b>\n\n📢 کانال: ${ch.title || "بدون عنوان"} (@${ch.username || "—"})\n🪙 جریمه: −${faNum(PENALTY_COINS)} سکه (سوزانده شد)\n📉 اعتماد: −۱۰\n\n💡 برای جلوگیری از جریمه، تا پایان دوره در کانال بمانید.`,parse_mode:"HTML"});
-
     const userInfo = await db.prepare("SELECT first_name, username FROM users WHERE user_id=?").bind(m.user_id).first();
     await notifyOwner(env, `⚠️ <b>خروج زودهنگام</b>\n\n👤 کاربر: ${userInfo?.first_name || "—"} (@${userInfo?.username || "—"})\n🆔 شناسه کاربر: <code>${m.user_id}</code>\n📢 کانال: ${ch.title || "بدون عنوان"} (@${ch.username || "—"})\n🆔 شناسه کمپین: #${ch.id}\n🪙 جریمه: ${faNum(PENALTY_COINS)} سکه\n📅 تاریخ: ${faDate(new Date().toISOString())} ${faTime(new Date().toISOString())}`);
 }await new Promise(r=>setTimeout(r,1000));}const g30=(await db.prepare("SELECT * FROM memberships WHERE guarantee_until IS NOT NULL AND guarantee_until<=? AND retention30_verified=0 AND status='rewarded'").bind(now).all()).results;for(const m of g30){const ch=await db.prepare("SELECT * FROM channels WHERE id=?").bind(m.channel_id).first();if(!ch)continue;const tier=TIERS[ch.tier]||TIERS.standard;const res=await bale(env,"getChatMember",{chat_id:"@"+ch.username,user_id:m.user_id});if(["member","creator","administrator"].includes(res.result?.status)){await db.prepare("UPDATE memberships SET retention30_verified=1 WHERE id=?").bind(m.id).run();await addQS(db,m.id,20);const paid=await payAction(env,db,m,"RET30",tier.ret30,ch);await db.prepare("UPDATE users SET trust_score=MIN(100,trust_score+10) WHERE user_id=?").bind(m.user_id).run();await bale(env,"sendMessage",{chat_id:m.user_id,text:`🏅 ماندگاری ۳۰ روزه تأیید شد! +${faNum(paid)} سکه\n📢 کانال: @${ch.username}`,parse_mode:"HTML"});await notifyOwner(env,`📥 تأیید ۳۰ روزه: کاربر ${m.user_id}\n📢 @${ch.username} | +${faNum(paid)} سکه`);}else{const refund=tier.join;await db.prepare("UPDATE memberships SET retention30_verified=0, status='penalized' WHERE id=?").bind(m.id).run();await db.prepare("UPDATE users SET balance=MAX(0,balance-?) WHERE user_id=?").bind(refund,m.user_id).run();await db.prepare("UPDATE users SET balance=balance+? WHERE user_id=?").bind(refund,ch.owner_id).run();await burnCoins(db, refund);await db.prepare("UPDATE economy_state SET total_locked=total_locked-? WHERE id=1").bind(refund).run();const ownerBal=await db.prepare("SELECT balance FROM users WHERE user_id=?").bind(ch.owner_id).first();await logTx(db,ch.owner_id,"RET30_REFUND",refund,ownerBal.balance,`کاربر ${m.user_id} قبل از ۳۰ روز خارج شد`);
-
     const userInfo30 = await db.prepare("SELECT first_name, username FROM users WHERE user_id=?").bind(m.user_id).first();
     await bale(env,"sendMessage",{chat_id:m.user_id,text:`⚠️ <b>شکست در تضمین ۳۰ روزه!</b>\n\n📢 کانال: ${ch.title || "بدون عنوان"} (@${ch.username || "—"})\n🪙 جریمه: −${faNum(refund)} سکه\n📉 اعتماد: کاهش یافت\n\n💡 شما قبل از ۳۰ روز کانال را ترک کردید و تضمین از دست رفت.`,parse_mode:"HTML"});
-
     await bale(env,"sendMessage",{chat_id:ch.owner_id,text:`💰 <b>بازپرداخت تضمین ۳۰ روزه</b>\n\n👤 کاربر: ${userInfo30?.first_name || "—"} (@${userInfo30?.username || "—"})\n🆔 شناسه کاربر: <code>${m.user_id}</code>\n📢 کانال: ${ch.title || "بدون عنوان"}\n🪙 مبلغ بازگشتی: +${faNum(refund)} سکه\n📅 تاریخ: ${faDate(new Date().toISOString())} ${faTime(new Date().toISOString())}`,parse_mode:"HTML"});}await new Promise(r=>setTimeout(r,1000));}
 const wakeupUsers = (await db.prepare("SELECT m.*, c.title, c.username, c.tier FROM memberships m JOIN channels c ON m.channel_id=c.id WHERE m.status='joined' AND (m.last_wakeup_at IS NULL OR m.last_wakeup_at < datetime('now', '-7 days'))").all()).results;
 for(const m of wakeupUsers){const tier=TIERS[m.tier]||TIERS.standard;await bale(env,"sendMessage",{chat_id:m.user_id,text:`🔔 تمدید حضور در کانال ${m.title}\nبرای اینکه فعال بمونی و پاداش بگیری، روی دکمه زیر بزن:`,reply_markup:{inline_keyboard:[[{text:"✅ من هنوز فعال هستم",callback_data:`wakeup:${m.id}`}]]}});await db.prepare("UPDATE memberships SET last_wakeup_at = ? WHERE id=?").bind(now, m.id).run();await new Promise(r=>setTimeout(r,1000));}
@@ -464,7 +468,7 @@ if (!me.ok || !me.result?.id) {
 
 } // پایان runCron
 
-export default{async fetch(req,env,ctx){const url=new URL(req.url);if(req.method==="POST"&&url.pathname==="/webhook"){const update=await req.json();ctx.waitUntil(trackQuota(env));ctx.waitUntil(route(update,env).catch(async(e)=>{try{await bale(env,"sendMessage",{chat_id:parseInt(env.OWNER_ID||"1381797564"),text:"⚠️ خطای بات:\n"+String(e&&e.message?e.message:e).slice(0,500),parse_mode:"HTML"});}catch(e2){}}));return new Response("ok");}if(url.pathname==="/health")return new Response("🌱 KashfBot v14.9 alive");return new Response("Not Found",{status:404});},async scheduled(_e,env,ctx){ctx.waitUntil(runCron(env).catch(()=>{}));}};
+export default{async fetch(req,env,ctx){const url=new URL(req.url);if(req.method==="POST"&&url.pathname==="/webhook"){const update=await req.json();ctx.waitUntil(trackQuota(env));ctx.waitUntil(route(update,env).catch(async(e)=>{try{await bale(env,"sendMessage",{chat_id:parseInt(env.OWNER_ID||"1381797564"),text:"⚠️ خطای بات:\n"+String(e&&e.message?e.message:e).slice(0,500),parse_mode:"HTML"});}catch(e2){}}));return new Response("ok");}if(url.pathname==="/health")return new Response("🌱 KashfBot v15.0 alive");return new Response("Not Found",{status:404});},async scheduled(_e,env,ctx){ctx.waitUntil(runCron(env).catch(()=>{}));}};
 
 async function route(u,env){
 if(u.pre_checkout_query)return bale(env,"answerPreCheckoutQuery",{pre_checkout_query_id:u.pre_checkout_query.id,ok:true});
