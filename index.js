@@ -1,6 +1,8 @@
 // ═══════════════════════════════════════════
 // 🌱 KashfBot v15.2 — Golden Economy Build (FINAL)
 // ═══════════════════════════════════════════
+import { HELP_KB_MAIN, HELP_SECTIONS, getHelpContent, getHelpMenu, handleHelpCb } from './help.js';
+
 const BOT_NAME = "کشف", CLUB_CHANNEL = "@KashfClub";
 const BOT_USERNAME = "kashfbot";
 const BASE_PRICE = 100, COMMISSION_RATE = 0.2, RETENTION_HOURS = 48;
