@@ -19,6 +19,7 @@ jobs:
       - name: Syntax check (ESM)
         run: |
           set +e
+          cp *.js /tmp/
           cp index.js /tmp/check.mjs
           node --input-type=module -e "await import('file:///tmp/check.mjs');" > check.log 2>&1
           code=$?
