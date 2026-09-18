@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════
-// 🌱 KashfBot v15.1 — Golden Economy Build (FINAL)
+// 🌱 KashfBot v15.2 — Golden Economy Build (FINAL)
 // ═══════════════════════════════════════════
 const BOT_NAME = "کشف", CLUB_CHANNEL = "@KashfClub";
 const BOT_USERNAME = "kashfbot";
@@ -274,6 +274,55 @@ if(data.startsWith("wakeup:")) {
     return edit("✅ عالیه! فعال بودن شما ثبت شد.");
 }
 
+// ✅ جدید (v15.2): هندلر joined: برای پردازش دکمه «✅ عضو شدم» روی رکوردهای قدیمی assigned
+if(data.startsWith("joined:")){
+    const mId=parseInt(data.slice(7));
+    const m=await db.prepare("SELECT * FROM memberships WHERE id=?").bind(mId).first();
+    if(!m||m.user_id!==uid)return edit("❌ رکورد یافت نشد.");
+    if(m.status==="joined"||m.status==="rewarded")return edit("✅ قبلاً ثبت شده است.\nوضعیت فعلی‌ات را در «🎁 تسک‌های فعال» ببین.");
+    if(m.status==="penalized")return edit("⛔ این تسک جریمه شده و قابل ادامه نیست.");
+    if(m.status!=="assigned")return edit("❌ وضعیت این تسک قابل انجام نیست.");
+
+    const ch=await db.prepare("SELECT * FROM channels WHERE id=?").bind(m.channel_id).first();
+    if(!ch)return edit("❌ کانال یافت نشد.");
+    if(ch.budget_coins<=0)return edit("⛔ بودجه این کمپین تمام شده.");
+
+    // ✅ بررسی واقعی عضویت
+    const res=await bale(env,"getChatMember",{chat_id:"@"+ch.username,user_id:uid});
+    if(!["member","creator","administrator"].includes(res.result?.status)){
+        return edit("❌ هنوز عضو کانال نشده‌ای!\n\nابتدا روی «📢 باز کردن کانال» بزن، عضو شو، سپس این دکمه را مجدداً بزن.",{inline_keyboard:[[{text:"🔄 بررسی مجدد",callback_data:"joined:"+mId},{text:"📢 باز کردن کانال",url:`https://ble.ir/${ch.username}`}]]});
+    }
+
+    const tier=TIERS[ch.tier]||TIERS.standard;
+    const nowISO = new Date().toISOString();
+    const checkISO = new Date(Date.now() + RETENTION_HOURS * 3600 * 1000).toISOString();
+
+    await db.prepare("UPDATE memberships SET status='joined', joined_at=?, check_at=? WHERE id=?").bind(nowISO, checkISO, mId).run();
+    await payAction(env,db,m,"JOIN",tier.join,ch);
+    await addQS(db,mId,20);
+
+    let finalMsg = `✅ عضویت ثبت شد!\n⏳ تأیید ماندگاری تا ${faDate(checkISO)}`;
+
+    if(tier.quiz && ch.quiz_question){
+        const opts=JSON.parse(ch.quiz_options||"[]");
+        let quizMsg = `❓ <b>کوییز مکان‌محور (+${faNum(tier.quiz)} سکه)</b>\n\n📢 کانال: ${ch.title}`;
+        if(ch.anchor_post_link){
+            quizMsg += `\n\n🔗 <b>پست مرجع:</b>\n${ch.anchor_post_link}\n📍 <b>جستجو:</b> پست ${faNum(ch.post_distance||3)}ام بعد از پست مرجع را ببین`;
+        } else {
+            quizMsg += `\n\n📍 پاسخ را در کانال پیدا کن`;
+        }
+        quizMsg += `\n\n❓ ${ch.quiz_question}`;
+        await sendMsg(env,uid,quizMsg,{inline_keyboard:opts.map((o,i)=>[{text:o,callback_data:`quiz:${mId}:${i}`}])});
+        finalMsg += `\n\n🎁 اولین تسک: کوییز مکان‌محور به پیوی‌ات ارسال شد.`;
+    } else if(tier.forward){
+        await sendMsg(env,uid,`📤 <b>تسک فوروارد (+${faNum(tier.forward)} سکه)</b>\n\n۱) کانال @${ch.username} را باز کن\n۲) یکی از پست‌ها را انتخاب کن\n۳) همان پست را به همین بات فوروارد کن`,{inline_keyboard:[[{text:"📢 باز کردن کانال",url:`https://ble.ir/${ch.username}`}]]});
+        finalMsg += `\n\n🎁 تسک فوروارد به پیوی‌ات ارسال شد.`;
+    } else {
+        finalMsg += `\n\n💡 پاداش عضویت شما پس از تأیید ماندگاری ۴۸ ساعته آزاد می‌شود.`;
+    }
+    return edit(finalMsg);
+}
+
 // ✅ تغییر ۱: بلوک quiz با منطق پی‌درپی
 if(data.startsWith("quiz:")){
     const[,mId,idx]=data.split(":").map(Number);
@@ -289,27 +338,23 @@ if(data.startsWith("quiz:")){
     const newAttempts=(m.quiz_attempts||0)+1;
     await db.prepare("UPDATE memberships SET quiz_attempts=? WHERE id=?").bind(newAttempts,mId).run();
 
-    // ✅ پاسخ صحیح
     if(opts[idx]===ch.quiz_answer){
         await db.prepare("UPDATE memberships SET quiz_correct=1 WHERE id=?").bind(mId).run();
         await addQS(db,mId,40);
         const paid=await payAction(env,db,m,"QUIZ",tier.quiz,ch);
         await edit(`✅ درست! +${faNum(paid)} سکه\n📈 امتیاز کیفیت +۴۰`);
 
-        // ✅ ارسال خودکار تسک فوروارد
         if(tier.forward && !m.forward_verified){
             await sendMsg(env,uid,`📤 <b>تسک فوروارد (+${faNum(tier.forward)} سکه)</b>\n\n۱) کانال @${ch.username} را باز کن\n۲) یکی از پست‌ها را انتخاب کن\n۳) همان پست را به همین بات فوروارد کن`,{inline_keyboard:[[{text:"📢 باز کردن کانال",url:`https://ble.ir/${ch.username}`}]]});
         }
         return;
     }
 
-    // ✅ پاسخ اشتباه
     const remaining=QUIZ_MAX_ATTEMPTS-newAttempts;
     if(remaining > 0){
         return edit(`❌ اشتباه. ${faNum(remaining)} تلاش باقی مانده.`);
     }
 
-    // ✅ اتمام تلاش‌ها — ارسال فوروارد
     await edit(`❌ اشتباه. تلاش‌های شما تمام شد و پاداش کوییز از دست رفت.`);
     if(tier.forward && !m.forward_verified){
         await sendMsg(env,uid,`📤 <b>تسک فوروارد (+${faNum(tier.forward)} سکه)</b>\n\n۱) کانال @${ch.username} را باز کن\n۲) یکی از پست‌ها را انتخاب کن\n۳) همان پست را به همین بات فوروارد کن`,{inline_keyboard:[[{text:"📢 باز کردن کانال",url:`https://ble.ir/${ch.username}`}]]});
@@ -388,8 +433,47 @@ if(data==="mycams"){const rows=(await db.prepare("SELECT * FROM channels WHERE o
 if(data.startsWith("cam_members:")){const chId=parseInt(data.slice(12));const ch=await db.prepare("SELECT * FROM channels WHERE id=? AND owner_id=?").bind(chId,uid).first();if(!ch)return edit("❌ دسترسی ندارید.");const rows=(await db.prepare("SELECT m.*, u.first_name, u.username FROM memberships m JOIN users u ON m.user_id=u.user_id WHERE m.channel_id=? ORDER BY m.id DESC LIMIT 15").bind(chId).all()).results;if(!rows.length)return edit(`📋 اعضای ${ch.title}\n\nهنوز عضوی ثبت نشده.`,{inline_keyboard:[[{text:"🔙 بازگشت",callback_data:"mycams"}]]});const statusIcon=s=>({assigned:"🔘",joined:"⏳",rewarded:"✅",penalized:"⛔"}[s]||"—");const list=rows.map((r,i)=>`${faNum(i+1)}. ${r.first_name||"—"} ${r.username?"@"+r.username:""}\n${statusIcon(r.status)} | QS: ${faNum(r.quality_score)} | ${r.joined_at?faDate(r.joined_at):"—"}`).join("\n──────────\n");return edit(`📋 اعضای ${ch.title}\n👥 کل: ${faNum(rows.length)} نفر\n\n${list}`,{inline_keyboard:[[{text:"🔙 بازگشت",callback_data:"mycams"}]]});}
 if(data==="myacts"){const rows=(await db.prepare("SELECT m.*, c.title, c.username, c.tier FROM memberships m JOIN channels c ON m.channel_id=c.id WHERE m.user_id=? ORDER BY m.id DESC LIMIT 10").bind(uid).all()).results;if(!rows.length)return edit("📒 فعالیت‌های من\n\nهنوز تسکی انجام نداده‌ای.",{inline_keyboard:[[{text:"🔙 بازگشت",callback_data:"profile_back"}]]});const statusLabel=s=>({assigned:"🔘 شروع نشده",joined:"⏳ در انتظار تأیید",rewarded:"✅ تأیید شده",penalized:"⛔ جریمه"}[s]||s);const list=rows.map(r=>{const parts=[];if(r.status==="rewarded"||r.status==="joined")parts.push("عضویت");if(r.forward_verified)parts.push("فوروارد");if(r.quiz_correct)parts.push("کوییز");if(r.retention30_verified)parts.push("ماندگاری۳۰");const tier=TIERS[r.tier]||TIERS.standard;let earned=0;if(r.status==="rewarded")earned+=tier.join;if(r.forward_verified)earned+=tier.forward;if(r.quiz_correct)earned+=tier.quiz;if(r.retention30_verified)earned+=tier.ret30;return`📢 ${r.title} @${r.username}\n${statusLabel(r.status)}\n✓ ${parts.join(" | ")||"—"}\n🪙 کسب‌شده: ${faNum(earned)} | QS: ${faNum(r.quality_score)}\n📅 ${r.joined_at?faDate(r.joined_at):"—"}`;}).join("\n──────────\n");const totals=await db.prepare("SELECT SUM(quality_score) qs, COUNT(*) c FROM memberships WHERE user_id=? AND status='rewarded'").bind(uid).first();return edit(`📒 فعالیت‌های من\n\n${list}\n\n📊 جمع کل\n🎫 تسک موفق: ${faNum(totals.c)} | 🏆 QS: ${faNum(totals.qs||0)}`,{inline_keyboard:[[{text:"🔙 بازگشت",callback_data:"profile_back"}]]});}
 
-// ✅ تغییر ۳: active_tasks با نمایش لینک مرجع
-if(data==="active_tasks"){const rows=(await db.prepare("SELECT m.*, c.title, c.username, c.tier, c.quiz_question, c.quiz_options, c.anchor_post_link, c.post_distance FROM memberships m JOIN channels c ON m.channel_id=c.id WHERE m.user_id=? AND m.status IN ('assigned','joined') ORDER BY m.id DESC LIMIT 10").bind(uid).all()).results;if(!rows.length)return edit("🎁 تسک‌های فعال\n\nتسکی نداری.\nاز «🌟 کشف کانال، گروه و ربات» شروع کن!",{inline_keyboard:[[{text:"🔙 بازگشت",callback_data:"profile_back"}]]});const summary=[];let sent=0;for(const r of rows){const tier=TIERS[r.tier]||TIERS.standard;if(r.status==="assigned"){summary.push(`🔘 ${r.title} — هنوز عضو نشده‌ای`);if(sent<3){await sendMsg(env,uid,`📢 ${r.title} — @${r.username}`,{inline_keyboard:[[{text:"✅ عضو شدم",callback_data:"joined:"+r.id},{text:"📢 باز کردن کانال",url:`https://ble.ir/${r.username}`}]]});sent++;}}else{const pend=[];if(tier.forward&&!r.forward_verified)pend.push("فوروارد");if(tier.quiz&&!r.quiz_correct)pend.push("کوییز");if(!pend.length)pend.push("در انتظار تأیید ۴۸h");summary.push(`⏳ ${r.title} — ${pend.join("، ")}`);if(sent<3){if(tier.quiz&&!r.quiz_correct&&r.quiz_question){const opts=JSON.parse(r.quiz_options||"[]");let quizMsg=`❓ <b>کوییز مکان‌محور (+${faNum(tier.quiz)} سکه)</b>\n📢 ${r.title}`;if(r.anchor_post_link){quizMsg+=`\n\n🔗 <b>پست مرجع:</b>\n${r.anchor_post_link}\n📍 <b>جستجو:</b> پست ${faNum(r.post_distance||3)}ام بعد از مرجع`;}else{quizMsg+=`\n\n📍 پاسخ را در کانال پیدا کن`;}quizMsg+=`\n\n❓ ${r.quiz_question}`;await sendMsg(env,uid,quizMsg,{inline_keyboard:opts.map((o,i)=>[{text:o,callback_data:`quiz:${r.id}:${i}`}])});sent++;}if(tier.forward&&!r.forward_verified){await sendMsg(env,uid,`📤 تسک فوروارد (+${faNum(tier.forward)} سکه)\n📢 ${r.title}\nیک پست کانال را به همین بات فوروارد کن.`,{inline_keyboard:[[{text:"📢 باز کردن کانال",url:`https://ble.ir/${r.username}`}]]});sent++;}}}}return edit(`🎁 تسک‌های فعال\n\n${summary.join("\n")}\n\n📨 دکمه‌ها و جزئیات به پیوی‌ات ارسال شد.`,{inline_keyboard:[[{text:"🔙 بازگشت",callback_data:"profile_back"}]]});}
+// ✅ تغییر ۳ (v15.2): active_tasks با راهنمای واضح‌تر
+if(data==="active_tasks"){
+    const rows=(await db.prepare("SELECT m.*, c.title, c.username, c.tier, c.quiz_question, c.quiz_options, c.anchor_post_link, c.post_distance FROM memberships m JOIN channels c ON m.channel_id=c.id WHERE m.user_id=? AND m.status IN ('assigned','joined') ORDER BY m.id DESC LIMIT 10").bind(uid).all()).results;
+    if(!rows.length)return edit("🎁 تسک‌های فعال\n\nتسکی نداری.\nاز «🌟 کشف کانال، گروه و ربات» شروع کن!",{inline_keyboard:[[{text:"🔙 بازگشت",callback_data:"profile_back"}]]});
+    const summary=[];let sent=0;
+    for(const r of rows){
+        const tier=TIERS[r.tier]||TIERS.standard;
+        if(r.status==="assigned"){
+            summary.push(`🔘 ${r.title} — هنوز عضو نشده‌ای`);
+            if(sent<3){
+                await sendMsg(env,uid,`📢 <b>${r.title}</b>\n@${r.username}\n\n۱) روی دکمه «📢 باز کردن کانال» بزن\n۲) عضو کانال شو\n۳) برگرد و دکمه «✅ عضو شدم» را بزن`,{inline_keyboard:[[{text:"📢 باز کردن کانال",url:`https://ble.ir/${r.username}`}],[{text:"✅ عضو شدم",callback_data:"joined:"+r.id}]]});
+                sent++;
+            }
+        } else {
+            const pend=[];
+            if(tier.forward&&!r.forward_verified)pend.push("فوروارد");
+            if(tier.quiz&&!r.quiz_correct)pend.push("کوییز");
+            if(!pend.length)pend.push("در انتظار تأیید ۴۸h");
+            summary.push(`⏳ ${r.title} — ${pend.join("، ")}`);
+            if(sent<3){
+                if(tier.quiz&&!r.quiz_correct&&r.quiz_question){
+                    const opts=JSON.parse(r.quiz_options||"[]");
+                    let quizMsg=`❓ <b>کوییز مکان‌محور (+${faNum(tier.quiz)} سکه)</b>\n📢 ${r.title}`;
+                    if(r.anchor_post_link){
+                        quizMsg+=`\n\n🔗 <b>پست مرجع:</b>\n${r.anchor_post_link}\n📍 <b>جستجو:</b> پست ${faNum(r.post_distance||3)}ام بعد از مرجع`;
+                    }else{
+                        quizMsg+=`\n\n📍 پاسخ را در کانال پیدا کن`;
+                    }
+                    quizMsg+=`\n\n❓ ${r.quiz_question}`;
+                    await sendMsg(env,uid,quizMsg,{inline_keyboard:opts.map((o,i)=>[{text:o,callback_data:`quiz:${r.id}:${i}`}])});
+                    sent++;
+                }
+                if(tier.forward&&!r.forward_verified){
+                    await sendMsg(env,uid,`📤 تسک فوروارد (+${faNum(tier.forward)} سکه)\n📢 ${r.title}\nیک پست کانال را به همین بات فوروارد کن.`,{inline_keyboard:[[{text:"📢 باز کردن کانال",url:`https://ble.ir/${r.username}`}]]});
+                    sent++;
+                }
+            }
+        }
+    }
+    return edit(`🎁 تسک‌های فعال\n\n${summary.join("\n")}\n\n📨 دکمه‌ها و جزئیات به پیوی‌ات ارسال شد.`,{inline_keyboard:[[{text:"🔙 بازگشت",callback_data:"profile_back"}]]});
+}
 if(data==="mytxs"){const x=await db.prepare("SELECT balance FROM users WHERE user_id=?").bind(uid).first();const rows=(await db.prepare("SELECT * FROM transactions WHERE user_id=? ORDER BY id DESC LIMIT 15").bind(uid).all()).results;const txLabel={BUDGET_MINT:"🎁 پاداش سیستم",PURCHASE_MINT:"💎 خرید",TASK_JOIN:"🎯 پاداش عضویت",TASK_FORWARD:"📤 پاداش فوروارد",TASK_QUIZ:"❓ پاداش کوییز",TASK_RET30:"🏅 پاداش ماندگاری۳۰",ESCROW:"🔒 قفل کمپین",ESCROW_REFUND:"💰 بازگشت سپرده",STAKE_LOCK:"🔒 قفل استیک",STAKE_UNLOCK:"🔓 آزادسازی استیک",WELCOME:"🎁 خوش‌آمد"};const head=`🪙 موجودی فعلی: ${faNum(x.balance)} سکه\n──────────\n`;if(!rows.length)return edit(`💰 جزئیات سکه‌های من\n\n${head}هنوز تراکنشی نداری.`,{inline_keyboard:[[{text:"🔙 بازگشت",callback_data:"profile_back"}]]});const list=rows.map(t=>{const label=t.type&&t.type.startsWith("MISSION")?"🎯 مأموریت: "+(t.note||""):(txLabel[t.type]||t.type);const sign=t.amount>=0?"+":"";return`${label}\n${sign}${faNum(t.amount)} → موجودی ${faNum(t.balance_after)}\n📝 ${t.note||"—"} | ${faDate(t.created_at)} ${faTime(t.created_at)}`;}).join("\n──────────\n");return edit(`💰 جزئیات سکه‌های من\n\n${head}${list}`,{inline_keyboard:[[{text:"🔙 بازگشت",callback_data:"profile_back"}]]});}
 if(data==="profile_back"){return sendMsg(env,uid,"منوی اصلی:",MAIN_KB);}
 if(data==="support_start"){await setState(db,uid,"SUPPORT_MSG");return edit("📨 پیام خود را بنویسید:\n(حداکثر ۲۰۰۰ کاراکتر)");}
@@ -428,11 +512,9 @@ if(data.startsWith("mission:")){
     await payAction(env,db,m,"JOIN",tier.join,ch);
     await addQS(db,mId,20);
 
-    // ✅ منطق پی‌درپی
     let finalMsg = `✅ عضویت ثبت شد!\n⏳ تأیید ماندگاری تا ${faDate(check)}`;
 
     if(tier.quiz && ch.quiz_question && !m.quiz_correct){
-        // اول کوییز با لینک مرجع
         const opts=JSON.parse(ch.quiz_options||"[]");
         let quizMsg = `❓ <b>کوییز مکان‌محور (+${faNum(tier.quiz)} سکه)</b>\n\n📢 کانال: ${ch.title}`;
         if(ch.anchor_post_link){
@@ -515,7 +597,7 @@ if (!me.ok || !me.result?.id) {
 
 }
 
-export default{async fetch(req,env,ctx){const url=new URL(req.url);if(req.method==="POST"&&url.pathname==="/webhook"){const update=await req.json();ctx.waitUntil(trackQuota(env));ctx.waitUntil(route(update,env).catch(async(e)=>{try{await bale(env,"sendMessage",{chat_id:parseInt(env.OWNER_ID||"1381797564"),text:"⚠️ خطای بات:\n"+String(e&&e.message?e.message:e).slice(0,500),parse_mode:"HTML"});}catch(e2){}}));return new Response("ok");}if(url.pathname==="/health")return new Response("🌱 KashfBot v15.1 alive");return new Response("Not Found",{status:404});},async scheduled(_e,env,ctx){ctx.waitUntil(runCron(env).catch(()=>{}));}};
+export default{async fetch(req,env,ctx){const url=new URL(req.url);if(req.method==="POST"&&url.pathname==="/webhook"){const update=await req.json();ctx.waitUntil(trackQuota(env));ctx.waitUntil(route(update,env).catch(async(e)=>{try{await bale(env,"sendMessage",{chat_id:parseInt(env.OWNER_ID||"1381797564"),text:"⚠️ خطای بات:\n"+String(e&&e.message?e.message:e).slice(0,500),parse_mode:"HTML"});}catch(e2){}}));return new Response("ok");}if(url.pathname==="/health")return new Response("🌱 KashfBot v15.2 alive");return new Response("Not Found",{status:404});},async scheduled(_e,env,ctx){ctx.waitUntil(runCron(env).catch(()=>{}));}};
 
 async function route(u,env){
 if(u.pre_checkout_query)return bale(env,"answerPreCheckoutQuery",{pre_checkout_query_id:u.pre_checkout_query.id,ok:true});
